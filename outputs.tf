@@ -1,12 +1,11 @@
-
 output "kubeconfig_command_k8tre-dev" {
   description = "Create kubeconfig for k8tre-dev"
-  value       = "aws eks update-kubeconfig --name ${module.k8tre-eks.cluster_name}"
+  value       = "gcloud container clusters get-credentials ${module.k8tre-gke.cluster_name} --region ${var.region} --project ${var.project_id}"
 }
 
 output "kubeconfig_command_k8tre-argocd-dev" {
   description = "Create kubeconfig for k8tre-argocd-dev"
-  value       = "aws eks update-kubeconfig --name ${module.k8tre-argocd-eks.cluster_name}"
+  value       = "gcloud container clusters get-credentials ${module.k8tre-argocd-gke.cluster_name} --region ${var.region} --project ${var.project_id}"
 }
 
 output "name" {
@@ -14,47 +13,42 @@ output "name" {
   value       = var.name
 }
 
-output "efs_token" {
-  description = "EFS name creation token"
-  value       = local.efs_token
+output "filestore_id" {
+  description = "Filestore instance ID"
+  value       = module.filestore.file_system_id
 }
 
-output "service_access_prefix_list" {
-  description = "ID of the prefix list that can access services running on K8s"
-  value       = aws_ec2_managed_prefix_list.service_access_cidrs.id
-}
-
-output "vpc_cidr" {
-  description = "VPC CIDR"
-  value       = module.vpc.vpc_cidr_block
+output "vpc_name" {
+  description = "VPC Network Name"
+  value       = google_compute_network.vpc.name
 }
 
 output "k8tre_cluster_name" {
   description = "K8TRE dev cluster name"
-  value       = module.k8tre-eks.cluster_name
+  value       = module.k8tre-gke.cluster_name
 }
 
 output "k8tre_argocd_cluster_name" {
-  description = "K8TRE dev cluster name"
-  value       = module.k8tre-argocd-eks.cluster_name
+  description = "K8TRE dev ArgoCD cluster name"
+  value       = module.k8tre-argocd-gke.cluster_name
 }
 
-output "k8tre_eks_access_role" {
-  description = "K8TRE EKS deployment role ARN"
-  value       = module.k8tre-eks.eks_access_role
+output "k8tre_gke_access_role" {
+  description = "K8TRE GKE deployment service account email"
+  value       = module.k8tre-gke.eks_access_role
 }
 
 output "dns_validation_records" {
-  description = "DNS validation records to be created for ACM certificate"
+  description = "DNS validation records"
   value       = module.certificate[*].dns_validation_records
 }
 
-output "proxy_ec2_instance_id" {
-  description = "Transparent proxy EC2 instance ID if enabled"
-  value       = module.transparent-proxy[*].instance_id
+output "proxy_instance_name" {
+  description = "Transparent proxy Compute Engine VM instance name if enabled"
+  value       = module.transparent-proxy[*].proxy_instance_name
 }
 
-output "s3_studydata_bucket_name" {
-  description = "Name of the S3 studydata bucket"
-  value       = aws_s3_bucket.studydata.id
+output "gcs_studydata_bucket_name" {
+  description = "Name of the GCS studydata bucket"
+  value       = google_storage_bucket.studydata.name
 }

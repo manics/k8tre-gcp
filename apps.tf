@@ -11,13 +11,12 @@ resource "kubernetes_storage_class" "rwo-default" {
     name = "rwo-default"
     annotations = {
       "description" = "ReadWriteOnce - Single pod read-write access"
-      # "storageclass.kubernetes.io/is-default-class" = "true"
     }
   }
-  storage_provisioner = "kubernetes.io/aws-ebs"
+  storage_provisioner = "pd.csi.storage.gcp.io"
   reclaim_policy      = "Delete"
   parameters = {
-    type = "gp3"
+    type = "pd-balanced"
   }
   volume_binding_mode    = "WaitForFirstConsumer"
   allow_volume_expansion = true
@@ -25,7 +24,6 @@ resource "kubernetes_storage_class" "rwo-default" {
   provider = kubernetes.k8tre-dev
 }
 
-# https://github.com/kubernetes-sigs/aws-efs-csi-driver/blob/ada97c0de28ddea1b525595ed419292191c8601d/examples/kubernetes/dynamic_provisioning/README.md
 resource "kubernetes_storage_class" "rwx-default" {
   count = (var.deployment_stage >= 2) ? 1 : 0
 
@@ -33,23 +31,13 @@ resource "kubernetes_storage_class" "rwx-default" {
     name = "rwx-default"
     annotations = {
       "description" = "ReadWriteMany - Multi-pod shared read-write access"
-      # "storageclass.kubernetes.io/is-default-class" = "true"
     }
   }
-  storage_provisioner = "efs.csi.aws.com"
+  storage_provisioner = "filestore.csi.storage.gcp.io"
   reclaim_policy      = "Delete"
   parameters = {
-    provisioningMode = "efs-ap"
-    fileSystemId     = module.efs.file_system_id
-    directoryPerms   = "750"
-
-    # The rest of these are optional
-    gidRangeStart         = "1000"
-    gidRangeEnd           = "2000"
-    basePath              = "/dynamic_provisioning"
-    subPathPattern        = "$${.PVC.namespace}/$${.PVC.name}"
-    ensureUniqueDirectory = "true"
-    reuseAccessPoint      = "false"
+    tier      = "basic"
+    fileShare = "share1"
   }
   volume_binding_mode    = "WaitForFirstConsumer"
   allow_volume_expansion = true
@@ -197,18 +185,17 @@ resource "helm_release" "argocd" {
 
 
 # Add k8tre-dev cluster to ArgoCD
-# https://argo-cd.readthedocs.io/en/release-3.1/operator-manual/declarative-setup/#eks
 resource "kubernetes_secret" "argocd-cluster-k8tre-dev" {
   count = (var.deployment_stage >= 2) ? 1 : 0
 
   metadata {
-    name      = "argocd-cluster-${module.k8tre-eks.cluster_name}"
+    name      = "argocd-cluster-${module.k8tre-gke.cluster_name}"
     namespace = kubernetes_namespace.argocd[0].metadata[0].name
     labels = merge(
       { "argocd.argoproj.io/secret-type" = "cluster" },
       var.k8tre_cluster_labels,
       {
-        "cluster-name" : module.k8tre-eks.cluster_name,
+        "cluster-name" : module.k8tre-gke.cluster_name,
         "external-domain" : var.dns_domain,
         "region" : var.region,
       },
@@ -217,16 +204,12 @@ resource "kubernetes_secret" "argocd-cluster-k8tre-dev" {
   }
   data = {
     config = jsonencode({
-      awsAuthConfig = {
-        clusterName = module.k8tre-eks.cluster_name
-        roleARN     = module.k8tre-eks.eks_access_role
-      }
       tlsClientConfig = {
-        caData = module.k8tre-eks.cluster_ca_certificate
+        caData = module.k8tre-gke.cluster_ca_certificate
       }
     })
-    name   = module.k8tre-eks.cluster_name
-    server = module.k8tre-eks.cluster_endpoint
+    name   = module.k8tre-gke.cluster_name
+    server = "https://${module.k8tre-gke.cluster_endpoint}"
   }
 
   provider = kubernetes.k8tre-dev-argocd
@@ -271,3 +254,4 @@ resource "kubernetes_manifest" "additional-argocd-app" {
 
   provider = kubernetes.k8tre-dev-argocd
 }
+

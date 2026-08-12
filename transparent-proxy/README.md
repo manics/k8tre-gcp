@@ -1,19 +1,12 @@
-# Transparent Proxy
+# Transparent Squid outbound proxy (GCP)
 
-This is a transparent proxy that allows/denies HTTP and HTTPS traffic based on domains.
+Configures a transparent proxy on Google Compute Engine for restricting outbound traffic to a configurable list of domains.
 
-It can be used by configuring your network to route all internet bound traffic to this proxy, meaning you do not need to explicitly configure proxy settings for all applications.
+## Requirements
 
-`allowed_domains` is a list of domains.
-A leading `.` means the domain and subdomains are included.
+When using an intercepting proxy with TLS peek-and-splice, client devices must NOT be configured to use an explicit HTTP/HTTPS proxy. Instead, standard HTTP (80) and HTTPS (443) traffic must be routed to the proxy instance's internal IP.
 
-Access logs (both allowed and blocked connections) are sent to CloudWatch log group `${name}/transparent-proxy`.
-Blocked connections are sent to `${name}/transparent-proxy/blocked`.
+The proxy instance will redirect traffic to Squid ports (3128 for HTTP, 3129 for HTTPS).
 
-## Limitations
-
-- When the allowed domains are updated squid is **not** automatically restarted, you must manually run `systemctl restart squid` in the instance (log in with AWS SSM)
-
-## Future improvements
-
-- Pre-build AMI instead of installing everything in userdata at first boot
+- For HTTP, Squid will check the destination hostname against `/etc/squid/allowlist.txt`.
+- For HTTPS, Squid will inspect the Server Name Indication (SNI) host in the TLS Client Hello handshake against `/etc/squid/allowlist.txt`.
