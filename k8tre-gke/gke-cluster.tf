@@ -1,104 +1,103 @@
-# https://registry.terraform.io/modules/terraform-aws-modules/eks/aws/19.15.2
-# Full example:
-# https://github.com/terraform-aws-modules/terraform-aws-eks/blame/v19.14.0/examples/complete/main.tf
-# https://github.com/terraform-aws-modules/terraform-aws-eks/blob/v19.14.0/docs/compute_resources.md
+# GKE Cluster Definition
 
-# This is complicated because we want to disable the default AWS vpc-cni so we can
-# install Cilium, but the nodegroup will fail to become ready without a CNI.
-# https://cilium.io/blog/2025/06/19/eks-eni-install/
-#
-# It should be possible to keep the AWS vpc-cni and chain the Cilium CNI
-# https://cilium.io/blog/2025/07/08/byonci-overlay-install/
-#
-# but this fails when Gateway is enabled:
-# https://github.com/cilium/cilium/issues/33685
-#
-# https://hackmd.io/@eCHO-live/138
-
-locals {
-  admin_principals = merge({
-    # Anyone in the AWS account with sufficient permissions can access the cluster
-    aws_admins = "arn:aws:iam::${local.aws_account_id}:root"
-    # Optional GitHub OIDC role
-    github_oidc = var.github_oidc_rolename == null ? null : "arn:aws:iam::${local.aws_account_id}:role/${var.github_oidc_rolename}"
-    # ARN can't be resolved until after the role is created
-    # eks_access = aws_iam_role.eks_access.arn
-    eks_access = "arn:aws:iam::${local.aws_account_id}:role/${var.cluster_name}-eks-access"
-    },
-    var.additional_admin_principals
-  )
-}
-
-# This assumes the EKS service linked role is already created (or the current user has permissions to create it)
-module "eks" {
-  source             = "terraform-aws-modules/eks/aws"
-  version            = var.module_eks_version
+resource "google_container_cluster" "primary" {
   name               = var.cluster_name
-  kubernetes_version = var.k8s_version
-  subnet_ids         = var.private_subnets
+  location           = var.region
+  project            = var.project_id
+  min_master_version = var.k8s_version
 
-  endpoint_private_access      = true
-  endpoint_public_access       = true
-  endpoint_public_access_cidrs = var.k8s_api_cidrs
 
-  security_group_additional_rules = var.cluster_security_group_additional_rules
+  # We remove the default node pool to manage node pools explicitly
+  remove_default_node_pool = true
+  initial_node_count       = 1
 
-  vpc_id = var.vpc_id
+  network    = var.network
+  subnetwork = var.subnetwork
 
-  # Allow all allowed roles to access the KMS key
-  kms_key_enable_default_policy = true
-  # This duplicates the above, but the default is the current user/role so this will avoid
-  # a deployment change when run by different users/roles
-  kms_key_administrators = [
-    "arn:aws:iam::${local.aws_account_id}:root",
-  ]
+  ip_allocation_policy {
+    cluster_secondary_range_name  = var.ip_range_pods
+    services_secondary_range_name = var.ip_range_services
+  }
 
-  enable_irsa = false
+  private_cluster_config {
+    enable_private_nodes    = true
+    enable_private_endpoint = false
+    master_ipv4_cidr_block  = "172.16.0.0/28"
+  }
 
-  # Disable all addons since we don't yet have a nodegroup to run them on
-  addons = {}
-
-  # Send control plane logs to CloudWatch (is this the default anyway?)
-  # https://docs.aws.amazon.com/eks/latest/userguide/control-plane-logs.html
-  enabled_log_types = [
-    "api",
-    "audit",
-    "authenticator",
-    "controllerManager",
-    "scheduler",
-  ]
-  cloudwatch_log_group_retention_in_days = 90
-  create_cloudwatch_log_group            = true
-
-  enable_cluster_creator_admin_permissions = true
-
-  access_entries = {
-    for key, principal in local.admin_principals :
-    key => {
-      principal_arn = principal
-      policy_associations = {
-        admin = {
-          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-          access_scope = {
-            type = "cluster"
-          }
-        }
+  master_authorized_networks_config {
+    dynamic "cidr_blocks" {
+      for_each = var.k8s_api_cidrs
+      content {
+        cidr_block   = cidr_blocks.value
+        display_name = "Allowed CIDR ${cidr_blocks.key}"
       }
     }
-    if principal != null
+  }
+
+  workload_identity_config {
+    workload_pool = "${var.project_id}.svc.id.goog"
+  }
+
+  gateway_api_config {
+    channel = "CHANNEL_STANDARD"
+  }
+
+  addons_config {
+    gcs_fuse_csi_driver_config {
+      enabled = true
+    }
+    gcp_filestore_csi_driver_config {
+      enabled = true
+    }
+    gce_persistent_disk_csi_driver_config {
+      enabled = true
+    }
+  }
+
+
+  deletion_protection = false
+}
+
+resource "google_container_node_pool" "primary_nodes" {
+  count      = (var.deployment_stage >= 1) ? 1 : 0
+  name       = "${var.cluster_name}-wg1"
+  location   = var.region
+  cluster    = google_container_cluster.primary.name
+  node_count = var.wg1_size
+  project    = var.project_id
+
+  autoscaling {
+    min_node_count = 1
+    max_node_count = var.wg1_max_size
+  }
+
+  node_config {
+    machine_type = var.instance_type_wg1
+    disk_size_gb = var.root_volume_size
+    disk_type    = "pd-standard"
+
+    oauth_scopes = [
+      "https://www.googleapis.com/auth/cloud-platform"
+    ]
+
+    labels = {
+      cluster = var.cluster_name
+    }
+
+    workload_metadata_config {
+      mode = "GKE_METADATA"
+    }
   }
 }
 
-# K8S Gateway CRDs: Cilium Helm chart detects whether Gateway CRDs are present
-# so CRDs must be installed first
+
+######################################################################
+# K8S Gateway CRDs and Optional Cilium Setup
 
 data "http" "gateway_standard_crds" {
   url = "https://github.com/kubernetes-sigs/gateway-api/releases/download/v${var.gateway_api_version}/standard-install.yaml"
 }
-
-# Need to strip out status field
-# https://github.com/hashicorp/terraform-provider-kubernetes/issues/2739
-# https://github.com/hashicorp/terraform-provider-kubernetes/issues/1428#issuecomment-3053948214
 
 locals {
   gateway_crds = provider::kubernetes::manifest_decode_multi(data.http.gateway_standard_crds.response_body)
@@ -122,7 +121,7 @@ resource "kubernetes_manifest" "gateway_crds" {
 
 resource "helm_release" "cilium" {
   count      = (var.deployment_stage >= 1) ? 1 : 0
-  depends_on = [kubernetes_manifest.gateway_crds]
+  depends_on = [kubernetes_manifest.gateway_crds, google_container_node_pool.primary_nodes]
 
   name       = "cilium"
   repository = "https://helm.cilium.io/"
@@ -130,65 +129,21 @@ resource "helm_release" "cilium" {
   version    = var.cilium_version
   namespace  = "kube-system"
 
-  # Will fail because on the first run there are no nodes
   wait = false
 
-  # Azure values for comparison
-  # https://github.com/karectl/kare-azure-infrastructure/blob/09f192fa4be77a10e1e93e82e32bb860ddea0a4c/modules/cluster-gateway/main.tf#L101
-
-
   set = [
-    # pass the cluster_endpoint to the helm values so that we can configure kube-proxy replacement
     {
       name  = "k8sServiceHost"
-      value = trimprefix(module.eks.cluster_endpoint, "https://")
+      value = google_container_cluster.primary.endpoint
     },
     {
       name  = "k8sServicePort"
       value = "443"
     },
-
-    # {
-    #   name  = "cni.chainingMode"
-    #   value = "aws-cni"
-    # },
-    # {
-    #   name  = "cni.exclusive"
-    #   value = "false"
-    # },
-
-    # {
-    #   name  = "enableIPv4Masquerade"
-    #   value = "true"
-    # },
-
-    # {
-    #   name  = "ipv4NativeRoutingCIDR"
-    #   # value = data.terraform_remote_state.k8tre.outputs.vpc_cidr
-    #   value = "0.0.0.0/0"
-    # },
-    {
-      name  = "eni.enabled"
-      value = "true"
-    },
-    {
-      name  = "ipam.mode"
-      value = "eni"
-    },
-    {
-      name  = "kubeProxyReplacement"
-      value = "true"
-    },
-    {
-      name  = "routingMode"
-      value = "native"
-    },
-
     {
       name  = "gatewayAPI.enabled"
       value = "true"
     },
-
     {
       name  = "hubble.enabled"
       value = "true"
@@ -204,163 +159,3 @@ resource "helm_release" "cilium" {
   ]
 }
 
-
-# https://registry.terraform.io/modules/terraform-aws-modules/eks/aws/21.15.1/submodules/eks-managed-node-group
-module "eks_nodegroup" {
-  count = (var.deployment_stage >= 1) ? 1 : 0
-
-  # Need a CNI otherwise node group never becomes ready and terraform fails
-  depends_on = [helm_release.cilium]
-
-  source  = "terraform-aws-modules/eks/aws//modules/eks-managed-node-group"
-  version = var.module_eks_version
-
-  cluster_name   = module.eks.cluster_name
-  name           = "${module.eks.cluster_name}-wg1"
-  instance_types = [var.instance_type_wg1]
-  ami_type       = var.use_bottlerocket ? "BOTTLEROCKET_x86_64" : "AL2023_x86_64_STANDARD"
-
-  use_latest_ami_release_version = var.autoupdate_ami
-
-  cluster_service_cidr = module.eks.cluster_service_cidr
-
-  # https://github.com/terraform-aws-modules/terraform-aws-eks/blob/v21.15.1/modules/eks-managed-node-group/README.md?plain=1#L17-L19
-  // The following variables are necessary if you decide to use the module outside of the parent EKS module context.
-  // Without it, the security groups of the nodes are empty and thus won't join the cluster.
-
-  # Except including cluster_primary_security_group_id and node_security_group_id
-  # leads to the load balancer failing, because it expects only one security group
-  # tagged with the cluster attached to each node but both these groups are tagged
-  # cluster_primary_security_group_id = module.eks.cluster_primary_security_group_id
-  vpc_security_group_ids = concat([
-    module.eks.node_security_group_id,
-    aws_security_group.all_worker_mgmt.id,
-    aws_security_group.worker_group_all.id,
-  ], var.additional_security_groups)
-
-
-  # additional_userdata = "echo foo bar"
-
-  desired_size = var.wg1_size
-  min_size     = 1
-  max_size     = var.wg1_max_size
-
-  labels = {
-    cluster = var.cluster_name
-  }
-
-  # Disk space can't be set with the default custom launch template
-  # disk_size = 100
-  block_device_mappings = {
-    root = {
-      # https://github.com/bottlerocket-os/bottlerocket/discussions/2011
-      device_name = var.use_bottlerocket ? "/dev/xvdb" : "/dev/xvda"
-      ebs = {
-        # Uses default alias/aws/ebs key
-        encrypted   = true
-        volume_size = var.root_volume_size
-        volume_type = "gp3"
-      }
-    }
-  }
-
-  subnet_ids = slice(var.private_subnets, 0, var.number_azs)
-
-  capacity_type = "ON_DEMAND"
-  iam_role_additional_policies = {
-    ssmcore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-    # Cilium ENI requires these:
-    # https://cilium.io/blog/2025/06/19/eks-eni-install/
-    eksworker = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
-    ekscni    = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-    ecr       = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-  }
-}
-
-
-# Now that the nodegroup is ready we can deploy addons
-
-# By default EKS will install the "recommended" version for the EKS version
-# Optionally install the latest supported version for the EKS version which
-# may be needed when upgrading EKS
-data "aws_eks_addon_version" "latest" {
-  for_each = toset([
-    "coredns",
-    "eks-pod-identity-agent",
-    "aws-ebs-csi-driver",
-    "aws-efs-csi-driver",
-    "aws-mountpoint-s3-csi-driver",
-  ])
-  addon_name         = each.value
-  kubernetes_version = module.eks.cluster_version
-  most_recent        = true
-}
-
-resource "aws_eks_addon" "coredns" {
-  count      = (var.deployment_stage >= 1) ? 1 : 0
-  depends_on = [module.eks_nodegroup]
-
-  cluster_name                = module.eks.cluster_name
-  addon_name                  = "coredns"
-  addon_version               = var.autoupdate_addons ? data.aws_eks_addon_version.latest["coredns"].version : null
-  resolve_conflicts_on_create = "OVERWRITE"
-}
-
-resource "aws_eks_addon" "eks-pod-identity-agent" {
-  count      = (var.deployment_stage >= 1) ? 1 : 0
-  depends_on = [module.eks_nodegroup]
-
-  cluster_name                = module.eks.cluster_name
-  addon_name                  = "eks-pod-identity-agent"
-  addon_version               = var.autoupdate_addons ? data.aws_eks_addon_version.latest["eks-pod-identity-agent"].version : null
-  resolve_conflicts_on_create = "OVERWRITE"
-}
-
-resource "aws_eks_addon" "aws-ebs-csi-driver" {
-  count      = (var.deployment_stage >= 1) ? 1 : 0
-  depends_on = [module.eks_nodegroup]
-
-  cluster_name                = module.eks.cluster_name
-  addon_name                  = "aws-ebs-csi-driver"
-  addon_version               = var.autoupdate_addons ? data.aws_eks_addon_version.latest["aws-ebs-csi-driver"].version : null
-  resolve_conflicts_on_create = "OVERWRITE"
-
-  pod_identity_association {
-    role_arn        = module.aws_ebs_csi_pod_identity.iam_role_arn
-    service_account = "ebs-csi-controller-sa"
-  }
-}
-
-resource "aws_eks_addon" "aws-efs-csi-driver" {
-  count      = (var.deployment_stage >= 1) ? 1 : 0
-  depends_on = [module.eks_nodegroup]
-
-  cluster_name                = module.eks.cluster_name
-  addon_name                  = "aws-efs-csi-driver"
-  addon_version               = var.autoupdate_addons ? data.aws_eks_addon_version.latest["aws-efs-csi-driver"].version : null
-  resolve_conflicts_on_create = "OVERWRITE"
-
-  pod_identity_association {
-    role_arn        = module.aws_efs_csi_pod_identity.iam_role_arn
-    service_account = "efs-csi-controller-sa"
-  }
-}
-
-resource "aws_eks_addon" "s3_csi_driver" {
-  count      = (var.deployment_stage >= 1 && local.enable_s3_csi > 0) ? 1 : 0
-  depends_on = [module.eks_nodegroup]
-
-  cluster_name                = module.eks.cluster_name
-  addon_name                  = "aws-mountpoint-s3-csi-driver"
-  addon_version               = var.autoupdate_addons ? data.aws_eks_addon_version.latest["aws-mountpoint-s3-csi-driver"].version : null
-  resolve_conflicts_on_create = "OVERWRITE"
-
-  pod_identity_association {
-    role_arn        = module.mountpoint_s3_csi_pod_identity[0].iam_role_arn
-    service_account = "s3-csi-driver-sa"
-  }
-}
-
-data "aws_eks_cluster_auth" "k8tre" {
-  name = var.cluster_name
-}

@@ -1,62 +1,26 @@
-# EKS storage pod identities and networking
+# GKE Storage Workload Identity bindings for GCS Fuse and GCS access
 
-# EBS
-
-module "aws_ebs_csi_pod_identity" {
-  source                    = "terraform-aws-modules/eks-pod-identity/aws"
-  version                   = var.module_eks_pod_identity_version
-  name                      = "aws-ebs-csi"
-  attach_aws_ebs_csi_policy = true
-  aws_ebs_csi_kms_arns      = ["arn:aws:kms:*:*:key/*"]
+resource "google_service_account" "gcs_fuse" {
+  count        = local.create_s3_csi_pod_identity
+  account_id   = "${var.cluster_name}-gcs-fuse"
+  display_name = "GCS Fuse CSI Service Account for ${var.cluster_name}"
+  project      = var.project_id
 }
 
-# EFS
-
-module "aws_efs_csi_pod_identity" {
-  source                    = "terraform-aws-modules/eks-pod-identity/aws"
-  version                   = var.module_eks_pod_identity_version
-  name                      = "aws-efs-csi"
-  attach_aws_efs_csi_policy = true
+resource "google_storage_bucket_iam_member" "gcs_fuse_reader" {
+  count  = local.create_s3_csi_pod_identity > 0 && length(var.s3_mountable_bucket_arns) > 0 ? length(var.s3_mountable_bucket_arns) : 0
+  bucket = var.s3_mountable_bucket_arns[count.index]
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.gcs_fuse[0].email}"
 }
 
-# S3 https://github.com/terraform-aws-modules/terraform-aws-eks-pod-identity/blob/v2.8.1/examples/complete/main.tf#L425-L450
+resource "google_service_account_iam_binding" "gcs_fuse_workload_identity" {
+  count              = local.create_s3_csi_pod_identity
+  service_account_id = google_service_account.gcs_fuse[0].name
+  role               = "roles/iam.workloadIdentityUser"
 
-module "mountpoint_s3_csi_pod_identity" {
-  source  = "terraform-aws-modules/eks-pod-identity/aws"
-  version = var.module_eks_pod_identity_version
-  count   = local.create_s3_csi_pod_identity
-  name    = "mountpoint-s3-csi"
-
-  # The built-in policy allows read-write
-  # For now we only need read-only, so define our own policy
-  # attach_mountpoint_s3_csi_policy    = true
-  # mountpoint_s3_csi_bucket_arns      = formatlist("arn:aws:s3:::%s", var.s3_mountable_buckets)
-  # mountpoint_s3_csi_bucket_path_arns = formatlist("arn:aws:s3:::%s/*", var.s3_mountable_buckets)
-
-  attach_custom_policy = true
-  policy_statements = [
-    {
-      sid       = "MountpointListBucket"
-      actions   = ["s3:ListBucket"]
-      effect    = "Allow"
-      resources = var.s3_mountable_bucket_arns
-    },
-    {
-      sid       = "MountpointReadOnlyObjectAccess"
-      actions   = ["s3:GetObject"]
-      effect    = "Allow"
-      resources = formatlist("%s/*", var.s3_mountable_bucket_arns)
-    },
-    {
-      sid       = "DecryptData"
-      actions   = ["kms:Decrypt"]
-      effect    = "Allow"
-      resources = var.s3_mountable_bucket_keys
-    },
+  members = [
+    "serviceAccount:${var.project_id}.svc.id.goog[kube-system/gcs-fuse-csi-driver-sa]"
   ]
-
-  association_defaults = {
-    namespace       = "kube-system"
-    service_account = "s3-csi-driver-sa"
-  }
 }
+

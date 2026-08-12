@@ -1,177 +1,155 @@
-#
+# GCP GKE Module Variables
 
 variable "deployment_stage" {
   type        = number
   description = "Multi-stage deployment step, run with 0 the first time, then with 1."
 }
 
+variable "project_id" {
+  type        = string
+  description = "GCP Project ID"
+  default     = "k8tre-dev-project"
+}
+
+variable "region" {
+  type        = string
+  description = "GCP Region"
+  default     = "europe-west2"
+}
+
 variable "cluster_name" {
   type        = string
-  description = "EKS cluster name"
+  description = "GKE cluster name"
 }
 
-variable "vpc_id" {
+variable "network" {
   type        = string
-  description = "VPC ID"
+  description = "VPC network name or self link"
 }
 
-variable "private_subnets" {
-  type        = list(string)
-  description = "Private subnet IDs"
+variable "subnetwork" {
+  type        = string
+  description = "VPC subnetwork name or self link"
+}
+
+variable "ip_range_pods" {
+  type        = string
+  description = "Secondary IP range name for GKE pods"
+  default     = "gke-pods"
+}
+
+variable "ip_range_services" {
+  type        = string
+  description = "Secondary IP range name for GKE services"
+  default     = "gke-services"
 }
 
 variable "k8s_version" {
   type        = string
   description = "Kubernetes cluster version"
-  default     = "1.36"
+  default     = "1.30"
 }
 
 variable "k8s_api_cidrs" {
   type        = list(string)
-  default     = ["127.0.0.1/8"]
-  description = "CIDRs that have access to the K8s API"
-}
-
-variable "additional_security_groups" {
-  type        = list(string)
-  default     = []
-  description = "Additional security groups to add to nodes"
-}
-
-# https://github.com/terraform-aws-modules/terraform-aws-eks/blob/v21.8.0/docs/network_connectivity.md
-variable "cluster_security_group_additional_rules" {
-  type        = map(any)
-  default     = {}
-  description = "Additional rules to add to the cluster security group which controls access to the control plane"
-}
-
-variable "number_azs" {
-  type = number
-  # Default to just one so we don't have to deal with node/volume affinity-
-  # can't use EBS volumes across AZs
-  default     = 1
-  description = "Number of AZs to use"
-  validation {
-    condition     = var.number_azs >= 0 && var.number_azs <= length(var.private_subnets)
-    error_message = "number_azs must be > 0 and <= number of private_subnets"
-  }
+  default     = ["0.0.0.0/0"]
+  description = "CIDRs that have access to the K8s API master authorized networks"
 }
 
 variable "instance_type_wg1" {
   type        = string
-  default     = "t3a.2xlarge"
-  description = "Worker-group-1 EC2 instance type"
-}
-
-variable "use_bottlerocket" {
-  type        = bool
-  default     = false
-  description = "Use Bottlerocket for worker nodes"
+  default     = "e2-standard-4"
+  description = "Worker group 1 GKE node machine type"
 }
 
 variable "root_volume_size" {
   type        = number
   default     = 100
-  description = "Root volume size in GB"
+  description = "Root disk size in GB"
 }
 
 variable "wg1_size" {
   type        = number
   default     = 2
-  description = <<-EOT
-    Worker-group-1 initial desired number of nodes.
-    Note this has no effect after the cluster is provisioned:
-    - https://github.com/terraform-aws-modules/terraform-aws-eks/issues/2030
-    - https://github.com/bryantbiggs/eks-desired-size-hack
-    Manually change the node group size in the AWS console instead.
-    EOT
+  description = "Worker group 1 initial desired number of nodes"
 }
 
 variable "wg1_max_size" {
   type        = number
   default     = 2
-  description = "Worker-group-1 maximum number of nodes"
-}
-
-variable "autoupdate_ami" {
-  type        = bool
-  default     = false
-  description = "Whether to autoupdate the AMI version when Terraform is run"
-}
-
-variable "autoupdate_addons" {
-  type        = bool
-  default     = false
-  description = "Whether to autoupdate the versions of EKS addons when Terraform is run"
+  description = "Worker group 1 maximum number of nodes"
 }
 
 variable "create_pod_identities" {
   type        = bool
   default     = false
-  description = "Create additional EKS pod identities (EBS and EFS CSI and are always created)"
+  description = "Enable Workload Identity bindings for additional service accounts"
 }
 
 variable "hosted_zone_ids" {
   type        = list(string)
   default     = []
-  description = "Route53 hosted zone IDs for External DNS, set to empty to disable"
+  description = "Cloud DNS hosted zone IDs for External DNS, set to empty to disable"
 }
 
 variable "s3_mountable_bucket_arns" {
   type        = list(string)
   default     = []
-  description = "List of S3 bucket ARNs that may be mounted into pods"
+  description = "List of GCS bucket names that may be mounted into pods via GCS Fuse"
 }
 
+# tflint-ignore: terraform_unused_declarations
 variable "s3_mountable_bucket_keys" {
   type        = list(string)
   default     = []
-  description = "List of KMS key ARNs required to decrypt data mounted into pods, must be set if s3_mountable_buckets is non-empty"
+  description = "List of KMS key names required to decrypt data mounted into pods"
 }
 
 variable "argocd_create_role" {
   type        = bool
-  description = "Whether to create an ArgoCD pod identity and roles"
+  description = "Whether to create ArgoCD Workload Identity roles"
   default     = false
 }
 
 variable "argocd_namespace" {
   type        = string
-  description = "Namespace of ArgoCD, used to create a pod identity"
+  description = "Namespace of ArgoCD, used to create Workload Identity"
   default     = "argocd"
 }
 
+# tflint-ignore: terraform_unused_declarations
 variable "argocd_assume_eks_access_role" {
   type        = string
-  description = "IAM role ARN that ArgoCD should assume to access the target cluster, default is eks-access role in this cluster"
+  description = "Role ARN or Service Account that ArgoCD should assume"
   default     = ""
 }
 
 variable "argocd_serviceaccount_names" {
   type        = list(string)
-  description = "Names of the ArgoCD serviceaccount, used to create a pod identity"
-  # https://argo-cd.readthedocs.io/en/stable/operator-manual/declarative-setup/#argo-cd-management-role
-  default = ["argocd-application-controller", "argocd-applicationset-controller", "argocd-server"]
+  description = "Names of the ArgoCD service accounts"
+  default     = ["argocd-application-controller", "argocd-applicationset-controller", "argocd-server"]
 }
 
 variable "github_oidc_rolename" {
   type        = string
-  description = "The name of the IAM role that will be created for the GitHub OIDC provider, set to null to disable"
+  description = "Name of GitHub OIDC workload identity pool provider, set to null to disable"
   default     = null
 }
 
+# tflint-ignore: terraform_unused_declarations
 variable "github_oidc_role_sub" {
   type        = list(string)
-  description = "List of githubusercontent.com:sub repositories and refs allowed to use the OIDC role"
-  # default     = ["repo:k8tre/k8tre:ref:refs/heads/main"]
-  default = []
+  description = "List of GitHub repos/refs allowed to use OIDC role"
+  default     = []
 }
 
+# tflint-ignore: terraform_unused_declarations
 variable "additional_admin_principals" {
   type        = map(string)
-  description = "Additional EKS admin pricipals"
+  description = "Additional admin IAM principals"
   default     = {}
 }
+
 
 variable "gateway_api_version" {
   type        = string
@@ -185,20 +163,3 @@ variable "cilium_version" {
   default     = "1.19.2"
 }
 
-
-######################################################################
-# Terraform module versions
-
-variable "module_eks_version" {
-  type        = string
-  description = "AWS EKS module version https://registry.terraform.io/modules/terraform-aws-modules/eks/aws/latest"
-  default     = "21.24.0"
-  const       = true
-}
-
-variable "module_eks_pod_identity_version" {
-  type        = string
-  description = "AWS EKS Pod Identity module version https://registry.terraform.io/modules/terraform-aws-modules/eks-pod-identity/aws/latest"
-  default     = "2.8.1"
-  const       = true
-}
