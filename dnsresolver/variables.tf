@@ -3,37 +3,19 @@ variable "name" {
   description = "zone name"
 }
 
-variable "subnet0" {
-  type        = string
-  description = "Private zone subnet id"
-}
-
-variable "ip0" {
-  type        = string
-  description = "Private zone resolver ip 0"
-}
-
-variable "subnet1" {
-  type        = string
-  description = "Private zone subnet id"
-}
-
-variable "ip1" {
-  type        = string
-  description = "Private zone resolver ip 1"
-}
-
 variable "vpc" {
   type        = string
-  description = "vpc id"
+  description = "VPC network self link or ID"
 }
 
+# tflint-ignore: terraform_unused_declarations
 variable "name_tag" {
   type        = string
   description = "Name used for private resources"
   default     = "private"
 }
 
+# tflint-ignore: terraform_unused_declarations
 variable "allow_dns_from_cidrs" {
   type        = list(any)
   description = "List of cidrs to allow private zone dns from"
@@ -43,23 +25,29 @@ variable "allow_dns_from_cidrs" {
 variable "static-ttl" {
   type        = number
   description = "ttl for static entries"
+  default     = 3600
 }
 
 variable "static" {
   type        = list(any)
   description = "list of lists of records [ [name, type, ip], [name, type, ip] ]"
+  default     = []
 }
 
+# tflint-ignore: terraform_unused_declarations
 variable "alarm_topics" {
   type        = list(string)
-  description = "ARN of CloudWatch alarms"
+  description = "Alerting topics"
+  default     = []
 }
 
+# tflint-ignore: terraform_unused_declarations
 variable "allowed_domains" {
   type        = list(string)
   description = "List of allowed private zone DNS lookup domains"
   default     = []
 }
+
 
 variable "create_public_zone" {
   type        = bool
@@ -88,3 +76,4 @@ variable "private-records" {
   EOF
   default     = {}
 }
+

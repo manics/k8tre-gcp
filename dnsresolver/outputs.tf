@@ -1,15 +1,16 @@
 output "private-zone-id" {
-  value = aws_route53_zone.private-zone.id
+  value = google_dns_managed_zone.private-zone.id
 }
 
 output "public-zone-id" {
-  value = aws_route53_zone.public-zone[*].id
+  value = var.create_public_zone ? google_dns_managed_zone.public-zone[0].id : null
 }
 
 output "public-primary-nameserver" {
-  value = aws_route53_zone.public-zone[*].primary_name_server
+  value = var.create_public_zone ? google_dns_managed_zone.public-zone[0].name_servers[0] : null
 }
 
 output "public-nameservers" {
-  value = aws_route53_zone.public-zone[*].name_servers
+  value = var.create_public_zone ? google_dns_managed_zone.public-zone[0].name_servers : []
 }
+

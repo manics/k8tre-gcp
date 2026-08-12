@@ -15,14 +15,12 @@ variable "organisation" {
   description = "Organisation, only used for self signed certificate"
 }
 
-variable "request_acm_certificate" {
+variable "request_gcp_certificate" {
   type        = bool
   default     = true
   description = <<-EOT
-  Request an AWS ACM certificate, this will require DNS validation records to be manually
-  created (https://docs.aws.amazon.com/acm/latest/userguide/dns-validation.html).
-  This module does not automatically create them since we don't have full control of
-  the domain.
-  Set this to false to generate a self-signed certificate for testing.
+  Request a GCP Certificate Manager certificate or self-signed certificate.
+  Set to false to generate a self-signed certificate for testing.
   EOT
 }
+

@@ -3,18 +3,26 @@ variable "name" {
   description = "Name used for resources"
 }
 
-variable "vpc_id" {
+variable "network" {
   type        = string
-  description = "VPC ID"
+  description = "VPC network name or self link"
 }
 
-variable "subnets" {
-  type        = list(string)
-  description = "List of subnet IDs"
+variable "location" {
+  type        = string
+  description = "GCP zone or region for Filestore instance"
+  default     = "europe-west2-a"
 }
 
-variable "kms_key_arn" {
+variable "tier" {
   type        = string
-  description = "KMS encryption key ARN"
+  description = "Filestore tier (BASIC_HDD, BASIC_SSD, HIGH_SCALE_SSD, ENTERPRISE)"
+  default     = "BASIC_HDD"
+}
+
+variable "kms_key_name" {
+  type        = string
+  description = "KMS encryption key name"
   default     = null
 }
+

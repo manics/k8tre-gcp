@@ -1,50 +1,30 @@
 terraform {
   required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 6.14"
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 6.0"
     }
   }
 
   required_version = ">= 1.15.0"
 }
 
-data "aws_subnet" "subnets" {
-  count = length(var.subnets)
+resource "google_filestore_instance" "instance" {
+  name     = replace(var.name, "/[^a-z0-9-]/", "-")
+  location = var.location
+  tier     = var.tier
 
-  id = var.subnets[count.index]
-}
-
-# Allow NFS traffic 2049/tcp
-resource "aws_security_group" "efs_sg" {
-  name        = "${var.name}-efs-sg"
-  description = "Allow NFS traffic for EFS"
-  vpc_id      = var.vpc_id
-
-  ingress {
-    from_port   = 2049
-    to_port     = 2049
-    protocol    = "tcp"
-    cidr_blocks = data.aws_subnet.subnets[*].cidr_block
+  file_shares {
+    capacity_gb = 1024
+    name        = "share1"
   }
-}
 
-resource "aws_efs_file_system" "efs" {
-  creation_token = var.name
-  encrypted      = true
-  kms_key_id     = var.kms_key_arn
-
-  tags = {
-    Name = var.name
+  networks {
+    network = var.network
+    modes   = ["MODE_IPV4"]
   }
+
+  kms_key_name = var.kms_key_name
 }
 
-# Mount targets, one per subnet
-resource "aws_efs_mount_target" "mount" {
-  count = length(var.subnets)
-
-  file_system_id  = aws_efs_file_system.efs.id
-  subnet_id       = var.subnets[count.index]
-  security_groups = [aws_security_group.efs_sg.id]
-}
 

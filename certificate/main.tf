@@ -1,13 +1,13 @@
 terraform {
   required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 6.14"
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 6.0"
     }
 
     tls = {
       source  = "hashicorp/tls"
-      version = "~>4.2.1"
+      version = "~> 4.0"
     }
   }
 
@@ -15,8 +15,8 @@ terraform {
 }
 
 locals {
-  request_acm_certificate = var.request_acm_certificate ? 1 : 0
-  create_self_signed_cert = var.request_acm_certificate ? 0 : 1
+  request_gcp_certificate = var.request_gcp_certificate ? 1 : 0
+  create_self_signed_cert = var.request_gcp_certificate ? 0 : 1
 }
 
 
@@ -34,7 +34,7 @@ resource "tls_self_signed_cert" "self_signed_cert" {
 
   private_key_pem = tls_private_key.self_signed_cert_key[0].private_key_pem
 
-  # One month, renew wirth 10 days to go
+  # One month, renew with 10 days to go
   early_renewal_hours   = 240
   validity_period_hours = 750
 
@@ -46,21 +46,30 @@ resource "tls_self_signed_cert" "self_signed_cert" {
   allowed_uses = ["key_encipherment", "digital_signature", "server_auth"]
 }
 
-resource "aws_acm_certificate" "self_signed_cert" {
-  count = local.create_self_signed_cert
+resource "google_certificate_manager_certificate" "self_signed_cert" {
+  count       = local.create_self_signed_cert
+  name        = replace(replace(var.domain_name, "*.", "wildcard-"), ".", "-")
+  description = "Self signed certificate for ${var.domain_name}"
+  scope       = "DEFAULT"
 
-  private_key      = tls_private_key.self_signed_cert_key[0].private_key_pem
-  certificate_body = tls_self_signed_cert.self_signed_cert[0].cert_pem
+  self_managed {
+    pem_certificate = tls_self_signed_cert.self_signed_cert[0].cert_pem
+    pem_private_key = tls_private_key.self_signed_cert_key[0].private_key_pem
+  }
 }
 
 
 ######################################################################
-# Request AWS ACM certificate
+# Request GCP Managed Certificate
 
-resource "aws_acm_certificate" "certificate" {
-  count = local.request_acm_certificate
+resource "google_certificate_manager_certificate" "certificate" {
+  count       = local.request_gcp_certificate
+  name        = replace(replace(var.domain_name, "*.", "wildcard-"), ".", "-")
+  description = "Managed certificate for ${var.domain_name}"
+  scope       = "DEFAULT"
 
-  domain_name               = var.domain_name
-  subject_alternative_names = var.subject_alternative_names
-  validation_method         = "DNS"
+  managed {
+    domains = concat([var.domain_name], var.subject_alternative_names)
+  }
 }
+
