@@ -8,6 +8,7 @@ variable "project_id" {
   description = "GCP Project ID"
 }
 
+# tflint-ignore: terraform_unused_declarations
 variable "region" {
   type        = string
   description = "GCP region"
