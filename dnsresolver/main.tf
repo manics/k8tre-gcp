@@ -36,7 +36,7 @@ resource "google_dns_record_set" "public-record" {
 }
 
 ######################################################################
-# Private zone
+# Private zone & Cloud DNS Policy
 ######################################################################
 
 resource "google_dns_managed_zone" "private-zone" {
@@ -49,6 +49,17 @@ resource "google_dns_managed_zone" "private-zone" {
     networks {
       network_url = var.vpc
     }
+  }
+}
+
+resource "google_dns_policy" "vpc-dns-policy" {
+  name                      = "dns-policy-${local.sanitised_zone_name}"
+  description               = "Cloud DNS policy for ${var.name} VPC"
+  enable_inbound_forwarding = var.enable_inbound_forwarding
+  enable_logging            = var.enable_logging
+
+  networks {
+    network_url = var.vpc
   }
 }
 
@@ -71,4 +82,3 @@ resource "google_dns_record_set" "static-record" {
   ttl          = var.static-ttl
   rrdatas      = [each.value[2]]
 }
-

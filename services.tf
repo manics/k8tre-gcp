@@ -63,20 +63,16 @@ module "dnsresolver" {
 
   vpc = google_compute_network.vpc.id
 
-  alarm_topics = []
-
   static-ttl = 3600
   static     = []
 
   private-records = {
-    "_ldap._tcp.gc._msdcs.ad SRV" = ["0 100 3268 dc0.ad.${var.dns_domain}"]
-    "_kerberos._tcp.ad SRV"       = ["0 100 88 dc0.ad.${var.dns_domain}"]
-    "_kerberos._udp.ad SRV"       = ["0 100 88 dc0.ad.${var.dns_domain}"]
-    "_ldap._tcp.ad SRV"           = ["0 100 389 dc0.ad.${var.dns_domain}"]
-    "_ldap._udp.ad SRV"           = ["0 100 389 dc0.ad.${var.dns_domain}"]
+    "_ldap._tcp.gc._msdcs.ad SRV" = ["0 100 3268 dc0.ad.${var.dns_domain}."]
+    "_kerberos._tcp.ad SRV"       = ["0 100 88 dc0.ad.${var.dns_domain}."]
+    "_kerberos._udp.ad SRV"       = ["0 100 88 dc0.ad.${var.dns_domain}."]
+    "_ldap._tcp.ad SRV"           = ["0 100 389 dc0.ad.${var.dns_domain}."]
+    "_ldap._udp.ad SRV"           = ["0 100 389 dc0.ad.${var.dns_domain}."]
   }
-
-  allowed_domains = ["*."]
 
   create_public_zone = var.create_public_zone
 }

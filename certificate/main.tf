@@ -17,6 +17,16 @@ terraform {
 locals {
   request_gcp_certificate = var.request_gcp_certificate ? 1 : 0
   create_self_signed_cert = var.request_gcp_certificate ? 0 : 1
+
+  cert_name   = replace(replace(var.domain_name, "*.", "wildcard-"), ".", "-")
+  all_domains = distinct(concat([var.domain_name], var.subject_alternative_names))
+
+  # A single DnsAuthorization for "example.org" covers both "example.org" and "*.example.org"
+  auth_domains = toset(var.request_gcp_certificate ? [
+    for domain in local.all_domains : trimprefix(domain, "*.")
+  ] : [])
+
+  certificate_id = var.request_gcp_certificate ? google_certificate_manager_certificate.certificate[0].id : google_certificate_manager_certificate.self_signed_cert[0].id
 }
 
 
@@ -43,12 +53,14 @@ resource "tls_self_signed_cert" "self_signed_cert" {
     organization = var.organisation
   }
 
+  dns_names = local.all_domains
+
   allowed_uses = ["key_encipherment", "digital_signature", "server_auth"]
 }
 
 resource "google_certificate_manager_certificate" "self_signed_cert" {
   count       = local.create_self_signed_cert
-  name        = replace(replace(var.domain_name, "*.", "wildcard-"), ".", "-")
+  name        = local.cert_name
   description = "Self signed certificate for ${var.domain_name}"
   scope       = "DEFAULT"
 
@@ -60,16 +72,42 @@ resource "google_certificate_manager_certificate" "self_signed_cert" {
 
 
 ######################################################################
-# Request GCP Managed Certificate
+# Request GCP Managed Certificate (with DNS Authorization for wildcards)
+
+resource "google_certificate_manager_dns_authorization" "auth" {
+  for_each    = local.auth_domains
+  name        = "${replace(each.value, ".", "-")}-dns-auth"
+  description = "DNS authorization for ${each.value}"
+  domain      = each.value
+}
 
 resource "google_certificate_manager_certificate" "certificate" {
   count       = local.request_gcp_certificate
-  name        = replace(replace(var.domain_name, "*.", "wildcard-"), ".", "-")
+  name        = local.cert_name
   description = "Managed certificate for ${var.domain_name}"
   scope       = "DEFAULT"
 
   managed {
-    domains = concat([var.domain_name], var.subject_alternative_names)
+    domains            = local.all_domains
+    dns_authorizations = [for auth in google_certificate_manager_dns_authorization.auth : auth.id]
   }
 }
 
+
+######################################################################
+# Certificate Map for GKE Gateway / GCP Load Balancers
+
+resource "google_certificate_manager_certificate_map" "map" {
+  name        = "${local.cert_name}-map"
+  description = "Certificate map for ${var.domain_name}"
+}
+
+resource "google_certificate_manager_certificate_map_entry" "entry" {
+  for_each = toset(local.all_domains)
+
+  name         = replace(replace(each.value, "*.", "wildcard-"), ".", "-")
+  description  = "Certificate map entry for ${each.value}"
+  map          = google_certificate_manager_certificate_map.map.name
+  certificates = [local.certificate_id]
+  hostname     = each.value
+}

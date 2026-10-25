@@ -1,10 +1,21 @@
 output "dns_validation_records" {
-  description = "DNS validation records to be created for certificate"
-  value       = {}
+  description = "DNS validation records to be created for GCP Certificate Manager DNS authorization"
+  value = {
+    for domain, auth in google_certificate_manager_dns_authorization.auth :
+    domain => {
+      name   = auth.dns_resource_record[0].name
+      record = auth.dns_resource_record[0].data
+      type   = auth.dns_resource_record[0].type
+    }
+  }
 }
 
 output "certificate_id" {
   description = "GCP Certificate Manager certificate ID"
-  value       = var.request_gcp_certificate ? (length(google_certificate_manager_certificate.certificate) > 0 ? google_certificate_manager_certificate.certificate[0].id : null) : (length(google_certificate_manager_certificate.self_signed_cert) > 0 ? google_certificate_manager_certificate.self_signed_cert[0].id : null)
+  value       = local.certificate_id
 }
 
+output "certificate_map_name" {
+  description = "GCP Certificate Manager certificate map name (for GKE Gateway networking.gke.io/certmap annotation)"
+  value       = google_certificate_manager_certificate_map.map.name
+}
