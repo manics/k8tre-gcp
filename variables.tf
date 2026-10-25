@@ -1,19 +1,24 @@
-
 variable "deployment_stage" {
   type        = number
   default     = 3
   description = <<EOT
   Multi-stage deployment step.
   This is necessary because Terraform needs to resolve some resources before
-  running, but those resource amy not exist yet.
+  running, but those resources may not exist yet.
   For the first deployment you must step through these starting at
   '-var deployment_stage=0', then '-var deployment_stage=1'.
-  Future deployment can use the highest number (default).
+  Future deployments can use the highest number (default).
   EOT
   validation {
     condition     = var.deployment_stage >= 0 && var.deployment_stage <= 3
     error_message = "deployment_stage must be one of [0, 1, 2, 3]"
   }
+}
+
+variable "project_id" {
+  type        = string
+  description = "GCP Project ID"
+  default     = "k8tre-dev-project"
 }
 
 variable "name" {
@@ -24,14 +29,14 @@ variable "name" {
 
 variable "region" {
   type        = string
-  description = "AWS region"
-  default     = "eu-west-2"
+  description = "GCP region"
+  default     = "europe-west2"
 }
 
-variable "vpc_cidr" {
+variable "zone" {
   type        = string
-  description = "VPC CIDR to create"
-  default     = "10.0.0.0/16"
+  description = "Primary GCP zone (used when number_availability_zones = 1)"
+  default     = "europe-west2-a"
 }
 
 variable "public_subnets" {
@@ -44,7 +49,7 @@ variable "public_subnets" {
 
 variable "private_subnets" {
   type        = list(string)
-  description = "Private subnet CIDRs to create. These IPs are used by EKS pods so make it large!"
+  description = "Private subnet CIDRs to create"
   default = [
     "10.0.64.0/18", "10.0.128.0/18",
   ]
@@ -54,11 +59,14 @@ variable "number_availability_zones" {
   type        = number
   default     = 1
   description = <<-EOT
-  Number of availability zones to use for EKS.
-  EBS volumes are tied to a single AZ, so if you have multiple AZs you must
-  ensure you always have sufficient nodes in all AZs to run all pods
-  that use EBS.
+  Number of availability zones to use for GKE (1 = zonal cluster in var.zone, 2-3 = regional cluster).
+  Standard Persistent Disks (pd-balanced) are zonal, so defaulting to 1 zone avoids cross-zone
+  volume scheduling constraints and regional GKE control plane management fees.
   EOT
+  validation {
+    condition     = var.number_availability_zones >= 1 && var.number_availability_zones <= 3
+    error_message = "number_availability_zones must be between 1 and 3"
+  }
 }
 
 variable "allowed_cidrs" {
@@ -69,31 +77,42 @@ variable "allowed_cidrs" {
 
 variable "additional_admin_principals" {
   type        = map(string)
-  description = "Additional EKS admin principals"
+  description = "Additional GKE admin principals"
   default     = {}
-}
-
-variable "efs_token" {
-  type        = string
-  description = "EFS name creation token, if null default to var.name"
-  default     = null
-}
-
-variable "eks_autoupdate_addons" {
-  type        = bool
-  default     = false
-  description = <<-EOT
-    Whether to autoupdate the versions of EKS addons when Terraform is run.
-    If you plan to upgrade EKS you may need to set this to `true` before the
-    upgrade since the current addon versions may not be compatible with the
-    planned upgrade.
-    EOT
 }
 
 variable "enable_github_oidc" {
   type        = bool
-  description = "Create GitHub OIDC role"
+  description = "Create GitHub OIDC Workload Identity Pool"
   default     = false
+}
+
+variable "enable_filestore_rwx" {
+  type        = bool
+  default     = false
+  description = <<-EOT
+    Use GCP Filestore CSI dynamic provisioning for the rwx-default StorageClass (large-scale production, expensive).
+    When false (default), deploys an in-cluster NFS server provisioner backed by a GCE Persistent Disk (suitable for dev and small production).
+  EOT
+}
+
+variable "rwx_filestore_tier" {
+  type        = string
+  default     = "enterprise"
+  description = <<-EOT
+    Filestore CSI tier when enable_filestore_rwx is true (standard, premium, zonal, regional, enterprise).
+    'enterprise' enables Filestore Multishares to dynamically share one Filestore instance across up to 80 PVCs.
+  EOT
+  validation {
+    condition     = contains(["standard", "premium", "zonal", "regional", "enterprise"], var.rwx_filestore_tier)
+    error_message = "rwx_filestore_tier must be one of [standard, premium, zonal, regional, enterprise]"
+  }
+}
+
+variable "rwx_nfs_disk_size_gb" {
+  type        = number
+  default     = 100
+  description = "Size in GB of the GCE Persistent Disk backing the in-cluster NFS server when enable_filestore_rwx is false"
 }
 
 variable "require_outbound_proxy" {
@@ -114,22 +133,20 @@ variable "default_outbound_proxy_allowed_domains" {
     Allow outgoing http/https to these domains by default.
     Prefix with '.' to include subdomains
     EOT
-  # TODO: tighten these
   default = [
-    # AWS services should be handled by VPC endpoints
-    # ".amazonaws.com",
-    # ".api.aws",
-    # Apart from this one?
-    ".shield.us-east-1.amazonaws.com",
+    ".googleapis.com",
+    ".gcr.io",
+    ".pkg.dev",
     # https://docs.docker.com/desktop/setup/allow-list/
     ".docker.com",
     ".docker.io",
     ".ghcr.io",
     ".quay.io",
+    ".k8s.io",
+    ".registry.k8s.io",
     # Mostly related to K8s manifests and Helm charts, ordered by TLD
     ".external-secrets.io",
     ".charts.external-secrets.io",
-    ".aws.github.io",
     ".codecentric.github.io",
     ".jupyterhub.github.io",
     ".kubernetes.github.io",
@@ -154,8 +171,6 @@ variable "additional_outbound_proxy_allowed_domains" {
   default     = []
 }
 
-
-
 variable "dns_domain" {
   type        = string
   default     = "k8tre.internal"
@@ -172,13 +187,13 @@ variable "request_certificate" {
   type        = string
   default     = "selfsigned"
   description = <<-EOT
-  Request an ACM certificate (requires manual DNS validation),
+  Request a GCP Certificate Manager certificate (requires manual DNS validation for wildcards),
   create a self-signed certificate,
   or none (fully manage certificate yourself)
   EOT
   validation {
-    condition     = contains(["acm", "selfsigned", "none"], var.request_certificate)
-    error_message = "Must be one of [acm, selfsigned, none]"
+    condition     = contains(["gcp", "selfsigned", "none"], var.request_certificate)
+    error_message = "Must be one of [gcp, selfsigned, none]"
   }
 }
 
@@ -186,10 +201,10 @@ variable "k8tre_cluster_labels" {
   type = map(string)
   default = {
     environment  = "dev"
-    secret-store = "aws"
-    vendor       = "aws"
+    secret-store = "gcp"
+    vendor       = "gcp"
     skip-metallb = "true"
-    external-dns = "aws"
+    external-dns = "gcp"
     # These are automatically set from other variables:
     # cluster-name
     # external-domain

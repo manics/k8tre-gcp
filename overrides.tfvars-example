@@ -1,28 +1,33 @@
-# k8tre-infrastructure-aws/
+# k8tre-infrastructure-gcp/
 # terraform apply -var-file=overrides.tfvars
+
+project_id = "my-gcp-project"
+region     = "europe-west2"
+zone       = "europe-west2-a"
 
 allowed_cidrs = [
   "myip",
   "192.0.2.0/24",
 ]
 
-dns_domain         = "k8tre-dev-eks.example.org"
+dns_domain          = "k8tre-dev-gke.example.org"
+request_certificate = "gcp"
 
-request_certificate = "acm"
+# Set to true for large-scale production deployments using GCP Filestore CSI
+# dynamic provisioning (defaults to false, which uses an in-cluster NFS server
+# backed by a GCE Persistent Disk)
+# enable_filestore_rwx = true
 
 additional_admin_principals = {
-  additional-role = "arn:aws:iam::000000000000:role/existing-role"
+  additional-sa = "serviceAccount:admin@my-gcp-project.iam.gserviceaccount.com"
 }
-
-
 
 k8tre_cluster_label_overrides = {
   environment = "stg"
 }
 
-
 k8tre_github_repo = "manics/k8tre"
-k8tre_github_ref  = "aws-dev"
+k8tre_github_ref  = "gcp-dev"
 
 additional_k8s_manifests = [
 #  "/path/to/additional/k8s-manifests.yaml"

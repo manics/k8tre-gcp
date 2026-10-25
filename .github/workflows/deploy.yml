@@ -23,9 +23,11 @@ jobs:
       contents: read
 
     env:
-      AWS_ACCOUNT_ID: "000000000000"
-      AWS_REGION: eu-west-2
-      GITHUB_OIDC_ROLE: k8tre-dev-github-oidc
+      GCP_PROJECT_ID: "k8tre-dev-project"
+      GCP_PROJECT_NUMBER: "000000000000"
+      GCP_REGION: europe-west2
+      GITHUB_OIDC_POOL: k8tre-dev-github-pool
+      GITHUB_OIDC_SERVICE_ACCOUNT: k8tre-dev-gke-admin@k8tre-dev-project.iam.gserviceaccount.com
       # TERRAFORM_DEPLOY_COMMAND: plan
       TERRAFORM_DEPLOY_COMMAND: "apply -auto-approve"
 
@@ -38,17 +40,13 @@ jobs:
       - name: Install terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
-          terraform_version: "1.12.1"
+          terraform_version: "1.15.6"
 
-      - name: Configure AWS credentials from prod account
-        uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+      - name: Authenticate to Google Cloud via Workload Identity Federation
+        uses: google-github-actions/auth@6fc4af4b145ae7821d527454aa9bd537d1f2dc5f # v2.1.7
         with:
-          role-to-assume: "arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.GITHUB_OIDC_ROLE }}"
-          aws-region: eu-west-2
-
-      # - name: Set AWS region
-      #   run: |
-      #     echo AWS_REGION=${{ env.AWS_REGION }} >> $GITHUB_ENV
+          workload_identity_provider: "projects/${{ env.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ env.GITHUB_OIDC_POOL }}/providers/github-provider"
+          service_account: "${{ env.GITHUB_OIDC_SERVICE_ACCOUNT }}"
 
       - name: Initialise Terraform
         run: |

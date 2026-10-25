@@ -3,6 +3,15 @@
 
 ######################################################################
 # Standard storage classes required by K8TRE
+#
+# - rwo-default: ReadWriteOnce backed by GCE Persistent Disk (pd-balanced, CMEK encrypted)
+# - rwx-default: ReadWriteMany with two configurable options:
+#     1. Default (enable_filestore_rwx = false): Cheap in-cluster NFS server + dynamic
+#        provisioner backed by a GCE Persistent Disk (rwo-default), suitable for dev
+#        and small production deployments (~$10/mo for 100 GiB).
+#     2. Large-scale production (enable_filestore_rwx = true): GCP Filestore CSI dynamic
+#        provisioning (supporting Filestore Multishares on Enterprise tier to share a
+#        Filestore instance across up to 80 PVCs).
 
 resource "kubernetes_storage_class" "rwo-default" {
   count = (var.deployment_stage >= 2) ? 1 : 0
@@ -11,48 +20,93 @@ resource "kubernetes_storage_class" "rwo-default" {
     name = "rwo-default"
     annotations = {
       "description" = "ReadWriteOnce - Single pod read-write access"
-      # "storageclass.kubernetes.io/is-default-class" = "true"
     }
   }
-  storage_provisioner = "kubernetes.io/aws-ebs"
+  storage_provisioner = "pd.csi.storage.gcp.io"
   reclaim_policy      = "Delete"
   parameters = {
-    type = "gp3"
+    type                    = "pd-balanced"
+    disk-encryption-kms-key = google_kms_crypto_key.default-storage.id
   }
   volume_binding_mode    = "WaitForFirstConsumer"
   allow_volume_expansion = true
+
+  depends_on = [google_kms_crypto_key_iam_member.compute_service_agent]
 
   provider = kubernetes.k8tre-dev
 }
 
-# https://github.com/kubernetes-sigs/aws-efs-csi-driver/blob/ada97c0de28ddea1b525595ed419292191c8601d/examples/kubernetes/dynamic_provisioning/README.md
-resource "kubernetes_storage_class" "rwx-default" {
-  count = (var.deployment_stage >= 2) ? 1 : 0
+# Option 1 (Default): Cheap in-cluster NFS dynamic provisioner backed by GCE Persistent Disk
+resource "kubernetes_namespace" "nfs_provisioner" {
+  count = (var.deployment_stage >= 2 && !var.enable_filestore_rwx) ? 1 : 0
+
+  metadata {
+    name = "nfs-provisioner"
+  }
+
+  provider = kubernetes.k8tre-dev
+}
+
+resource "helm_release" "nfs_server_provisioner" {
+  count = (var.deployment_stage >= 2 && !var.enable_filestore_rwx) ? 1 : 0
+
+  name       = "nfs-server-provisioner"
+  repository = "https://kubernetes-sigs.github.io/nfs-ganesha-server-and-external-provisioner/"
+  chart      = "nfs-server-provisioner"
+  version    = "1.8.0"
+  namespace  = kubernetes_namespace.nfs_provisioner[0].metadata[0].name
+
+  values = [
+    yamlencode({
+      persistence = {
+        enabled      = true
+        storageClass = kubernetes_storage_class.rwo-default[0].metadata[0].name
+        size         = "${var.rwx_nfs_disk_size_gb}Gi"
+      }
+      storageClass = {
+        create               = true
+        name                 = "rwx-default"
+        defaultClass         = false
+        reclaimPolicy        = "Delete"
+        allowVolumeExpansion = true
+      }
+    })
+  ]
+
+  depends_on = [kubernetes_storage_class.rwo-default, kubernetes_namespace.nfs_provisioner]
+
+  provider = helm.k8tre-dev
+}
+
+# Option 2 (Production): GCP Filestore CSI dynamic provisioning (disabled by default)
+resource "kubernetes_storage_class" "rwx-default-filestore" {
+  count = (var.deployment_stage >= 2 && var.enable_filestore_rwx) ? 1 : 0
 
   metadata {
     name = "rwx-default"
     annotations = {
-      "description" = "ReadWriteMany - Multi-pod shared read-write access"
-      # "storageclass.kubernetes.io/is-default-class" = "true"
+      "description" = "ReadWriteMany - Multi-pod shared read-write access (Filestore CSI)"
     }
   }
-  storage_provisioner = "efs.csi.aws.com"
+  storage_provisioner = "filestore.csi.storage.gcp.io"
   reclaim_policy      = "Delete"
-  parameters = {
-    provisioningMode = "efs-ap"
-    fileSystemId     = module.efs.file_system_id
-    directoryPerms   = "750"
-
-    # The rest of these are optional
-    gidRangeStart         = "1000"
-    gidRangeEnd           = "2000"
-    basePath              = "/dynamic_provisioning"
-    subPathPattern        = "$${.PVC.namespace}/$${.PVC.name}"
-    ensureUniqueDirectory = "true"
-    reuseAccessPoint      = "false"
-  }
+  parameters = merge(
+    {
+      tier    = var.rwx_filestore_tier
+      network = google_compute_network.vpc.name
+    },
+    var.rwx_filestore_tier == "enterprise" ? {
+      multishare      = "true"
+      max-volume-size = "1024Gi"
+    } : {},
+    contains(["enterprise", "zonal", "regional"], var.rwx_filestore_tier) ? {
+      instance-encryption-kms-key = google_kms_crypto_key.default-storage.id
+    } : {},
+  )
   volume_binding_mode    = "WaitForFirstConsumer"
   allow_volume_expansion = true
+
+  depends_on = [google_kms_crypto_key_iam_member.filestore_service_agent]
 
   provider = kubernetes.k8tre-dev
 }
@@ -136,9 +190,30 @@ resource "helm_release" "argocd" {
     },
   ]
 
-  # Specify the custom plugin extra containers and volumes.
+  # Specify the custom plugin extra containers, volumes, and GKE Workload Identity annotations.
   values = [
     yamlencode({
+      controller = {
+        serviceAccount = {
+          annotations = {
+            "iam.gke.io/gcp-service-account" = module.k8tre-argocd-gke.argocd_service_account_email
+          }
+        }
+      }
+      server = {
+        serviceAccount = {
+          annotations = {
+            "iam.gke.io/gcp-service-account" = module.k8tre-argocd-gke.argocd_service_account_email
+          }
+        }
+      }
+      applicationSet = {
+        serviceAccount = {
+          annotations = {
+            "iam.gke.io/gcp-service-account" = module.k8tre-argocd-gke.argocd_service_account_email
+          }
+        }
+      }
       repoServer = {
         volumes = [
           {
@@ -196,19 +271,18 @@ resource "helm_release" "argocd" {
 }
 
 
-# Add k8tre-dev cluster to ArgoCD
-# https://argo-cd.readthedocs.io/en/release-3.1/operator-manual/declarative-setup/#eks
+# Add k8tre-dev cluster to ArgoCD (using GKE Workload Identity & internal private endpoint)
 resource "kubernetes_secret" "argocd-cluster-k8tre-dev" {
   count = (var.deployment_stage >= 2) ? 1 : 0
 
   metadata {
-    name      = "argocd-cluster-${module.k8tre-eks.cluster_name}"
+    name      = "argocd-cluster-${module.k8tre-gke.cluster_name}"
     namespace = kubernetes_namespace.argocd[0].metadata[0].name
     labels = merge(
       { "argocd.argoproj.io/secret-type" = "cluster" },
       var.k8tre_cluster_labels,
       {
-        "cluster-name" : module.k8tre-eks.cluster_name,
+        "cluster-name" : module.k8tre-gke.cluster_name,
         "external-domain" : var.dns_domain,
         "region" : var.region,
       },
@@ -217,16 +291,17 @@ resource "kubernetes_secret" "argocd-cluster-k8tre-dev" {
   }
   data = {
     config = jsonencode({
-      awsAuthConfig = {
-        clusterName = module.k8tre-eks.cluster_name
-        roleARN     = module.k8tre-eks.eks_access_role
+      execProviderConfig = {
+        command    = "argocd-k8s-auth"
+        args       = ["gcp"]
+        apiVersion = "client.authentication.k8s.io/v1beta1"
       }
       tlsClientConfig = {
-        caData = module.k8tre-eks.cluster_ca_certificate
+        caData = module.k8tre-gke.cluster_ca_certificate
       }
     })
-    name   = module.k8tre-eks.cluster_name
-    server = module.k8tre-eks.cluster_endpoint
+    name   = module.k8tre-gke.cluster_name
+    server = "https://${module.k8tre-gke.cluster_private_endpoint}"
   }
 
   provider = kubernetes.k8tre-dev-argocd

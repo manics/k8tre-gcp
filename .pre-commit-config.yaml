@@ -13,9 +13,9 @@ repos:
       # - id: terraform_validate
 
       # Add variables documentation to README
-      - id: terraform_docs
-        args:
-          - --args=--config=.terraform-docs.yml
+      # - id: terraform_docs
+      #   args:
+      #     - --args=--config=.terraform-docs.yml
 
   # Autoformat: markdown, yaml, javascript (see the file .prettierignore)
   - repo: https://github.com/rbubley/mirrors-prettier

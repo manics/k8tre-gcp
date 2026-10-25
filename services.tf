@@ -1,114 +1,185 @@
 ######################################################################
-# Storage encryption key
-
-data "aws_caller_identity" "current" {}
-
-resource "aws_kms_key" "default-storage" {
-  description             = "${var.name} default storage key"
-  deletion_window_in_days = 30
-  enable_key_rotation     = true
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "Root IAM User Permissions"
-        Effect = "Allow"
-        Principal = {
-          AWS = format("arn:aws:iam::%s:root", data.aws_caller_identity.current.account_id)
-        }
-        Action   = "kms:*"
-        Resource = "*"
-      }
-    ]
-  })
-}
-
-resource "aws_kms_alias" "default-storage" {
-  name          = "alias/${var.name}/default-storage"
-  target_key_id = aws_kms_key.default-storage.key_id
-}
-
-
-######################################################################
-# EFS
+# Enable required GCP Project APIs
 
 locals {
-  efs_token = var.efs_token == null ? var.name : var.efs_token
+  required_gcp_apis = toset(concat([
+    "certificatemanager.googleapis.com",
+    "cloudkms.googleapis.com",
+    "compute.googleapis.com",
+    "container.googleapis.com",
+    "dns.googleapis.com",
+    "iam.googleapis.com",
+    "iamcredentials.googleapis.com",
+    "logging.googleapis.com",
+    "monitoring.googleapis.com",
+    "secretmanager.googleapis.com",
+    "storage.googleapis.com",
+    "sts.googleapis.com",
+  ], var.enable_filestore_rwx ? ["file.googleapis.com"] : []))
 }
 
-module "efs" {
-  source      = "./efs"
-  name        = local.efs_token
-  vpc_id      = module.vpc.vpc_id
-  subnets     = module.vpc.private_subnets
-  kms_key_arn = aws_kms_key.default-storage.arn
+resource "google_project_service" "required_apis" {
+  for_each           = local.required_gcp_apis
+  project            = var.project_id
+  service            = each.value
+  disable_on_destroy = false
+}
+
+data "google_project" "current" {
+  project_id = var.project_id
+  depends_on = [google_project_service.required_apis]
+}
+
+data "google_storage_project_service_account" "gcs_account" {
+  project    = var.project_id
+  depends_on = [google_project_service.required_apis]
 }
 
 
 ######################################################################
-# Bucket for study data
+# Storage encryption key (GCP Cloud KMS) & Service Agent Permissions
 
-resource "aws_s3_bucket" "studydata" {
-  bucket_prefix = "${var.name}-studydata-"
-  # force_destroy = true
+resource "google_kms_key_ring" "default-storage" {
+  name       = "${var.name}-keyring"
+  location   = var.region
+  project    = var.project_id
+  depends_on = [google_project_service.required_apis]
 }
 
-resource "aws_s3_bucket_server_side_encryption_configuration" "studydata" {
-  bucket = aws_s3_bucket.studydata.id
+resource "google_kms_crypto_key" "default-storage" {
+  name            = "${var.name}-default-storage"
+  key_ring        = google_kms_key_ring.default-storage.id
+  rotation_period = "2592000s" # 30 days
+}
 
-  rule {
-    apply_server_side_encryption_by_default {
-      kms_master_key_id = aws_kms_key.default-storage.arn
-      sse_algorithm     = "aws:kms"
-    }
+resource "google_kms_crypto_key_iam_member" "gcs_service_agent" {
+  crypto_key_id = google_kms_crypto_key.default-storage.id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  member        = "serviceAccount:${data.google_storage_project_service_account.gcs_account.email_address}"
+}
+
+resource "google_kms_crypto_key_iam_member" "compute_service_agent" {
+  crypto_key_id = google_kms_crypto_key.default-storage.id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  member        = "serviceAccount:service-${data.google_project.current.number}@compute-system.iam.gserviceaccount.com"
+}
+
+resource "google_kms_crypto_key_iam_member" "gke_service_agent" {
+  crypto_key_id = google_kms_crypto_key.default-storage.id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  member        = "serviceAccount:service-${data.google_project.current.number}@container-engine-robot.iam.gserviceaccount.com"
+}
+
+resource "google_kms_crypto_key_iam_member" "filestore_service_agent" {
+  count         = var.enable_filestore_rwx ? 1 : 0
+  crypto_key_id = google_kms_crypto_key.default-storage.id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  member        = "serviceAccount:service-${data.google_project.current.number}@cloud-filer.iam.gserviceaccount.com"
+}
+
+
+######################################################################
+# Bucket for study data (GCS)
+
+resource "google_storage_bucket" "studydata" {
+  name                        = "${var.name}-studydata-${var.project_id}"
+  location                    = var.region
+  project                     = var.project_id
+  force_destroy               = false
+  public_access_prevention    = "enforced"
+  uniform_bucket_level_access = true
+
+  encryption {
+    default_kms_key_name = google_kms_crypto_key.default-storage.id
   }
+
+  depends_on = [google_kms_crypto_key_iam_member.gcs_service_agent]
 }
 
 
 ######################################################################
 # Bucket for storing configuration
 
-resource "aws_s3_bucket" "services-config" {
-  bucket_prefix = "${var.name}-config-"
-  force_destroy = true
+resource "google_storage_bucket" "services_config" {
+  name                        = "${var.name}-config-${var.project_id}"
+  location                    = var.region
+  project                     = var.project_id
+  force_destroy               = true
+  public_access_prevention    = "enforced"
+  uniform_bucket_level_access = true
 }
 
 
 ######################################################################
-# DNS
+# Private Google Access Route & DNS (GCP Equivalent of AWS VPC Endpoints)
+# Ensures Google APIs (*.googleapis.com) route via Private Google Access
+# rather than through the Squid transparent proxy when 0.0.0.0/0 is proxied.
+
+resource "google_compute_route" "private_google_access" {
+  name             = "${var.name}-private-google-access"
+  dest_range       = "199.36.153.8/30"
+  network          = google_compute_network.vpc.name
+  next_hop_gateway = "default-internet-gateway"
+  priority         = 800
+  project          = var.project_id
+}
+
+resource "google_dns_managed_zone" "googleapis" {
+  name        = "${var.name}-private-googleapis"
+  dns_name    = "googleapis.com."
+  description = "Private Google Access DNS zone for *.googleapis.com"
+  visibility  = "private"
+  project     = var.project_id
+
+  private_visibility_config {
+    networks {
+      network_url = google_compute_network.vpc.id
+    }
+  }
+}
+
+resource "google_dns_record_set" "googleapis_a" {
+  managed_zone = google_dns_managed_zone.googleapis.name
+  name         = "private.googleapis.com."
+  type         = "A"
+  ttl          = 300
+  rrdatas      = ["199.36.153.8", "199.36.153.9", "199.36.153.10", "199.36.153.11"]
+  project      = var.project_id
+}
+
+resource "google_dns_record_set" "googleapis_cname" {
+  managed_zone = google_dns_managed_zone.googleapis.name
+  name         = "*.googleapis.com."
+  type         = "CNAME"
+  ttl          = 300
+  rrdatas      = ["private.googleapis.com."]
+  project      = var.project_id
+}
+
+
+######################################################################
+# DNS (Cloud DNS)
 
 module "dnsresolver" {
   source = "./dnsresolver"
   name   = var.dns_domain
 
-  subnet0 = module.vpc.private_subnets[0]
-  ip0     = cidrhost(module.vpc.private_subnets_cidr_blocks[0], -3)
-  subnet1 = module.vpc.private_subnets[1]
-  ip1     = cidrhost(module.vpc.private_subnets_cidr_blocks[1], -3)
-
-  vpc = module.vpc.vpc_id
-
-  alarm_topics = []
+  vpc = google_compute_network.vpc.id
 
   static-ttl = 3600
-  static = [
-    # # ECS Aliases
-    # ["proxy", "CNAME", "squid-proxy.${var.dns_domain}"],
-  ]
+  static     = []
 
   private-records = {
-    "_ldap._tcp.gc._msdcs.ad SRV" = ["0 100 3268 dc0.ad.${var.dns_domain}"]
-    "_kerberos._tcp.ad SRV"       = ["0 100 88 dc0.ad.${var.dns_domain}"]
-    "_kerberos._udp.ad SRV"       = ["0 100 88 dc0.ad.${var.dns_domain}"]
-    "_ldap._tcp.ad SRV"           = ["0 100 389 dc0.ad.${var.dns_domain}"]
-    "_ldap._udp.ad SRV"           = ["0 100 389 dc0.ad.${var.dns_domain}"]
+    "_ldap._tcp.gc._msdcs.ad SRV" = ["0 100 3268 dc0.ad.${var.dns_domain}."]
+    "_kerberos._tcp.ad SRV"       = ["0 100 88 dc0.ad.${var.dns_domain}."]
+    "_kerberos._udp.ad SRV"       = ["0 100 88 dc0.ad.${var.dns_domain}."]
+    "_ldap._tcp.ad SRV"           = ["0 100 389 dc0.ad.${var.dns_domain}."]
+    "_ldap._udp.ad SRV"           = ["0 100 389 dc0.ad.${var.dns_domain}."]
   }
 
-  # For now allow all since K8TRE is fetching external images and code
-  allowed_domains = ["*."]
-
   create_public_zone = var.create_public_zone
+
+  depends_on = [google_project_service.required_apis]
 }
 
 
@@ -123,108 +194,9 @@ module "certificate" {
   domain_name               = "*.${var.dns_domain}"
   subject_alternative_names = [var.dns_domain]
 
-  request_acm_certificate = var.request_certificate == "acm" ? true : false
-}
+  request_gcp_certificate = var.request_certificate == "gcp" ? true : false
 
-
-######################################################################
-# VPC endpoints
-
-resource "aws_security_group" "vpc_endpoints" {
-  name        = "eks-vpc-endpoints-sg"
-  description = "Allow inbound HTTPS to VPC Endpoints"
-  vpc_id      = module.vpc.vpc_id
-
-  ingress {
-    description = "Allow HTTPS from VPC"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = [module.vpc.vpc_cidr_block]
-  }
-
-  egress {
-    from_port        = 0
-    to_port          = 0
-    protocol         = "-1"
-    cidr_blocks      = ["0.0.0.0/0"]
-    ipv6_cidr_blocks = ["::/0"]
-  }
-}
-
-# https://docs.aws.amazon.com/eks/latest/userguide/private-clusters.html
-# https://docs.aws.amazon.com/vpc/latest/privatelink/aws-services-privatelink-support.html
-resource "aws_vpc_endpoint" "interface" {
-  for_each = toset([
-    # CloudWatch logs
-    "com.amazonaws.${var.region}.logs",
-
-    # Encrypted secrets and storage
-    "com.amazonaws.${var.region}.kms",
-
-    # Needed for AssumeRole
-    "com.amazonaws.${var.region}.sts",
-
-    # EC2 instances, and EBS storage volumes
-    "com.amazonaws.${var.region}.ec2",
-
-    # EFS
-    "com.amazonaws.${var.region}.elasticfilesystem",
-
-    # Autoscaling controller
-    "com.amazonaws.${var.region}.autoscaling",
-
-    # Uncomment if using ECR hosted images
-    # "com.amazonaws.${var.region}.ecr.api",
-    # "com.amazonaws.${var.region}.ecr.dkr",
-
-    # EKS
-    "com.amazonaws.${var.region}.eks",
-    # EKS pod identities
-    "com.amazonaws.${var.region}.eks-auth",
-
-    # Load balancing
-    "com.amazonaws.${var.region}.elasticloadbalancing",
-
-    # SSM sessions and SSM Parameter store (External Secrets operator)
-    "com.amazonaws.${var.region}.ssm",
-
-    # SSM sessions
-    "com.amazonaws.${var.region}.ec2messages",
-    "com.amazonaws.${var.region}.ssmmessages",
-
-    # "aws.api.${var.region}.s3files",
-  ])
-  service_name = each.value
-
-  vpc_id              = module.vpc.vpc_id
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = module.vpc.private_subnets
-  private_dns_enabled = true
-  security_group_ids  = [aws_security_group.vpc_endpoints.id]
-
-  # policy =
-}
-
-resource "aws_vpc_endpoint" "route53_interface_endpoint" {
-  vpc_id            = module.vpc.vpc_id
-  vpc_endpoint_type = "Interface"
-  # This is a global service
-  service_name       = "com.amazonaws.route53"
-  service_region     = "us-east-1"
-  subnet_ids         = module.vpc.private_subnets
-  security_group_ids = [aws_security_group.vpc_endpoints.id]
-
-  # policy =
-}
-
-resource "aws_vpc_endpoint" "s3_gateway_endpoint" {
-  vpc_id            = module.vpc.vpc_id
-  vpc_endpoint_type = "Gateway"
-  service_name      = "com.amazonaws.${var.region}.s3"
-  route_table_ids   = module.vpc.private_route_table_ids
-
-  # policy =
+  depends_on = [google_project_service.required_apis]
 }
 
 
@@ -234,14 +206,16 @@ resource "aws_vpc_endpoint" "s3_gateway_endpoint" {
 module "transparent-proxy" {
   count = var.require_outbound_proxy ? 1 : 0
 
-  source                           = "./transparent-proxy"
-  name                             = var.name
-  vpc_id                           = module.vpc.vpc_id
-  vpc_cidr                         = module.vpc.vpc_cidr_block
-  public_subnet                    = module.vpc.public_subnets[0]
-  private_subnet_route_table_ids   = module.vpc.private_route_table_ids
-  private_subnet_route_table_cidrs = var.outbound_proxy_cidrs
+  source                = "./transparent-proxy"
+  name                  = var.name
+  project_id            = var.project_id
+  region                = var.region
+  zone                  = var.zone
+  network               = google_compute_network.vpc.name
+  public_subnet         = google_compute_subnetwork.public_subnet.name
+  allowed_source_ranges = local.internal_cluster_cidrs
+  outbound_proxy_cidrs  = var.outbound_proxy_cidrs
 
-  s3_config_bucket = aws_s3_bucket.services-config.id
-  allowed_domains  = concat(var.default_outbound_proxy_allowed_domains, var.additional_outbound_proxy_allowed_domains)
+  gcs_config_bucket = google_storage_bucket.services_config.name
+  allowed_domains   = concat(var.default_outbound_proxy_allowed_domains, var.additional_outbound_proxy_allowed_domains)
 }
