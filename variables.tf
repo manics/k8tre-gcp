@@ -4,10 +4,10 @@ variable "deployment_stage" {
   description = <<EOT
   Multi-stage deployment step.
   This is necessary because Terraform needs to resolve some resources before
-  running, but those resource may not exist yet.
+  running, but those resources may not exist yet.
   For the first deployment you must step through these starting at
   '-var deployment_stage=0', then '-var deployment_stage=1'.
-  Future deployment can use the highest number (default).
+  Future deployments can use the highest number (default).
   EOT
   validation {
     condition     = var.deployment_stage >= 0 && var.deployment_stage <= 3
@@ -35,15 +35,8 @@ variable "region" {
 
 variable "zone" {
   type        = string
-  description = "GCP zone"
+  description = "Primary GCP zone (used when number_availability_zones = 1)"
   default     = "europe-west2-a"
-}
-
-# tflint-ignore: terraform_unused_declarations
-variable "vpc_cidr" {
-  type        = string
-  description = "VPC primary CIDR to create"
-  default     = "10.0.0.0/16"
 }
 
 variable "public_subnets" {
@@ -62,11 +55,18 @@ variable "private_subnets" {
   ]
 }
 
-# tflint-ignore: terraform_unused_declarations
 variable "number_availability_zones" {
   type        = number
   default     = 1
-  description = "Number of zones to use"
+  description = <<-EOT
+  Number of availability zones to use for GKE (1 = zonal cluster in var.zone, 2-3 = regional cluster).
+  Standard Persistent Disks (pd-balanced) are zonal, so defaulting to 1 zone avoids cross-zone
+  volume scheduling constraints and regional GKE control plane management fees.
+  EOT
+  validation {
+    condition     = var.number_availability_zones >= 1 && var.number_availability_zones <= 3
+    error_message = "number_availability_zones must be between 1 and 3"
+  }
 }
 
 variable "allowed_cidrs" {
@@ -85,6 +85,34 @@ variable "enable_github_oidc" {
   type        = bool
   description = "Create GitHub OIDC Workload Identity Pool"
   default     = false
+}
+
+variable "enable_filestore_rwx" {
+  type        = bool
+  default     = false
+  description = <<-EOT
+    Use GCP Filestore CSI dynamic provisioning for the rwx-default StorageClass (large-scale production, expensive).
+    When false (default), deploys an in-cluster NFS server provisioner backed by a GCE Persistent Disk (suitable for dev and small production).
+  EOT
+}
+
+variable "rwx_filestore_tier" {
+  type        = string
+  default     = "enterprise"
+  description = <<-EOT
+    Filestore CSI tier when enable_filestore_rwx is true (standard, premium, zonal, regional, enterprise).
+    'enterprise' enables Filestore Multishares to dynamically share one Filestore instance across up to 80 PVCs.
+  EOT
+  validation {
+    condition     = contains(["standard", "premium", "zonal", "regional", "enterprise"], var.rwx_filestore_tier)
+    error_message = "rwx_filestore_tier must be one of [standard, premium, zonal, regional, enterprise]"
+  }
+}
+
+variable "rwx_nfs_disk_size_gb" {
+  type        = number
+  default     = 100
+  description = "Size in GB of the GCE Persistent Disk backing the in-cluster NFS server when enable_filestore_rwx is false"
 }
 
 variable "require_outbound_proxy" {
@@ -107,11 +135,15 @@ variable "default_outbound_proxy_allowed_domains" {
     EOT
   default = [
     ".googleapis.com",
+    ".gcr.io",
+    ".pkg.dev",
     # https://docs.docker.com/desktop/setup/allow-list/
     ".docker.com",
     ".docker.io",
     ".ghcr.io",
     ".quay.io",
+    ".k8s.io",
+    ".registry.k8s.io",
     # Mostly related to K8s manifests and Helm charts, ordered by TLD
     ".external-secrets.io",
     ".charts.external-secrets.io",
@@ -155,7 +187,7 @@ variable "request_certificate" {
   type        = string
   default     = "selfsigned"
   description = <<-EOT
-  Request a GCP Certificate Manager certificate,
+  Request a GCP Certificate Manager certificate (requires manual DNS validation for wildcards),
   create a self-signed certificate,
   or none (fully manage certificate yourself)
   EOT

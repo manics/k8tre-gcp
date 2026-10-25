@@ -35,6 +35,9 @@ provider "google" {
   project = var.project_id
   region  = var.region
   zone    = var.zone
+  default_labels = {
+    owner = "trevolution"
+  }
 }
 
 data "google_client_config" "default" {}
@@ -44,6 +47,15 @@ provider "kubernetes" {
   host                   = "https://${module.k8tre-gke.cluster_endpoint}"
   cluster_ca_certificate = base64decode(module.k8tre-gke.cluster_ca_certificate)
   token                  = data.google_client_config.default.access_token
+}
+
+provider "helm" {
+  alias = "k8tre-dev"
+  kubernetes = {
+    host                   = "https://${module.k8tre-gke.cluster_endpoint}"
+    cluster_ca_certificate = base64decode(module.k8tre-gke.cluster_ca_certificate)
+    token                  = data.google_client_config.default.access_token
+  }
 }
 
 provider "kubernetes" {
@@ -61,4 +73,3 @@ provider "helm" {
     token                  = data.google_client_config.default.access_token
   }
 }
-
