@@ -10,6 +10,7 @@ echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-
 # Install proxy
 ############################################################
 
+# Use DPkg::Lock::Timeout=180 to avoid failing if an automatic update is in progress
 apt-get update -y -o DPkg::Lock::Timeout=180
 apt-get install -y -o DPkg::Lock::Timeout=180 \
   iptables-persistent \
@@ -38,14 +39,17 @@ SYSCTL
 sysctl --system
 
 # Flush any existing rules
+iptables -F FORWARD
 iptables -t nat -F
 iptables -t mangle -F
 ip6tables -F
 
-# Reject IPv6 forwarding so GKE nodes instantly fall back to IPv4
+# Block direct IPv4/IPv6 packet forwarding so non-80/443 traffic cannot bypass Squid via NAT
+iptables -P FORWARD DROP
+ip6tables -P FORWARD DROP
 ip6tables -A FORWARD -i "$INTERFACE" -j REJECT
 
-# Redirect HTTP and HTTPS traffic
+# Redirect HTTP and HTTPS traffic to local Squid intercept ports
 iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 3128
 iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 3129
 
@@ -62,6 +66,7 @@ systemctl restart netfilter-persistent
 # Configure Squid
 ############################################################
 
+# Generate dummy SSL certificate required for Squid's transparent peeking framework
 mkdir -p /etc/squid/ssl
 openssl req -new -newkey rsa:2048 -days 365 -nodes -x509 \
   -subj "/C=UK/O=K8TRE/CN=transparent-proxy" \
@@ -69,16 +74,22 @@ openssl req -new -newkey rsa:2048 -days 365 -nodes -x509 \
 chown -R proxy:proxy /etc/squid/ssl
 chmod 400 /etc/squid/ssl/dummy.pem
 
+# Initialize the SSL certificate database for the certgen helper
 mkdir -p /var/lib/squid
 rm -rf /var/lib/squid/ssl_db
 /usr/lib/squid/security_file_certgen -c -s /var/lib/squid/ssl_db -M 4MB
 chown -R proxy:proxy /var/lib/squid
 
+# Ensure file exists before first GCS copy, must be non-empty
 echo localhost > /etc/squid/allowlist.txt
 chown proxy:proxy /etc/squid/allowlist.txt
 
+# Overwrite default Squid configuration for transparent peek-and-splice
 cat << 'SQUID' > /etc/squid/squid.conf
 visible_hostname squid-proxy
+
+######################################################################
+# Access Control Lists
 
 acl SSL_port port 443
 acl step1 at_step SslBump1
@@ -86,19 +97,28 @@ acl step1 at_step SslBump1
 acl allowed_domains dstdomain "/etc/squid/allowlist.txt"
 acl allowed_domains_ssl ssl::server_name "/etc/squid/allowlist.txt"
 
+# Avoid warning in the HTTP rule when HTTPS is blocked, since there's no response
 acl hasResponse has response
 acl http_blocked http_status 403
 acl http_blocked_safe all-of hasResponse http_blocked
 
+# HTTPS/TLS block rules (handshake terminated, no response returned)
 acl ssl_blocked_hier hier_code HIER_NONE
 acl ssl_blocked_status transaction_initiator client
 acl ssl_blocked all-of CONNECT ssl_blocked_hier ssl_blocked_status !allowed_domains_ssl
 
+# Combine them into a single "any_blocked" rule
 acl any_blocked any-of http_blocked_safe ssl_blocked
+
+######################################################################
+# Logging
 
 logformat transparent_sni %ts.%03tu %6tr %>a %Ss/%03>Hs %<st %rm %ru %ssl::>sni %Sh/%<A %mt
 access_log daemon:/var/log/squid/access.log transparent_sni
 access_log daemon:/var/log/squid/blocked.log transparent_sni any_blocked
+
+######################################################################
+# Filtering
 
 http_port localhost:3130
 http_port 3128 intercept

@@ -8,7 +8,6 @@ variable "project_id" {
   description = "GCP Project ID"
 }
 
-# tflint-ignore: terraform_unused_declarations
 variable "region" {
   type        = string
   description = "GCP region"
@@ -29,6 +28,12 @@ variable "public_subnet" {
   description = "Public subnetwork name"
 }
 
+variable "allowed_source_ranges" {
+  type        = list(string)
+  description = "Internal VPC and GKE Pod CIDRs allowed to send HTTP/HTTPS traffic through the proxy"
+  default     = ["10.0.0.0/8"]
+}
+
 variable "outbound_proxy_cidrs" {
   type        = list(string)
   description = "Route these CIDRs to the transparent proxy"
@@ -46,9 +51,8 @@ variable "allowed_domains" {
   description = "Allowed domains (HTTP and HTTPS)"
 }
 
-# tflint-ignore: terraform_unused_declarations
 variable "log_group_retention_days" {
   type        = number
   default     = 365
-  description = "Retention period for logs"
+  description = "Number of days to retain proxy logs in Cloud Logging"
 }
