@@ -17,6 +17,22 @@ variable "region" {
   default     = "europe-west2"
 }
 
+variable "zone" {
+  type        = string
+  description = "Primary GCP Zone (used when number_azs = 1)"
+  default     = "europe-west2-a"
+}
+
+variable "number_azs" {
+  type        = number
+  default     = 1
+  description = "Number of availability zones to use (1 for zonal cluster, 2 or 3 for regional cluster)"
+  validation {
+    condition     = var.number_azs >= 1 && var.number_azs <= 3
+    error_message = "number_azs must be between 1 and 3"
+  }
+}
+
 variable "cluster_name" {
   type        = string
   description = "GKE cluster name"
@@ -44,15 +60,21 @@ variable "ip_range_services" {
   default     = "gke-services"
 }
 
+variable "master_ipv4_cidr_block" {
+  type        = string
+  description = "The /28 IP range in CIDR notation to use for the hosted GKE control plane network"
+  default     = "172.16.0.0/28"
+}
+
 variable "k8s_version" {
   type        = string
-  description = "Kubernetes cluster version"
-  default     = "1.30"
+  description = "Kubernetes cluster minimum version"
+  default     = "1.32"
 }
 
 variable "k8s_api_cidrs" {
   type        = list(string)
-  default     = ["0.0.0.0/0"]
+  default     = ["127.0.0.1/8"]
   description = "CIDRs that have access to the K8s API master authorized networks"
 }
 
@@ -71,13 +93,25 @@ variable "root_volume_size" {
 variable "wg1_size" {
   type        = number
   default     = 2
-  description = "Worker group 1 initial desired number of nodes"
+  description = "Worker group 1 initial desired number of nodes per zone"
 }
 
 variable "wg1_max_size" {
   type        = number
   default     = 2
-  description = "Worker group 1 maximum number of nodes"
+  description = "Worker group 1 maximum number of nodes per zone"
+}
+
+variable "autoupdate_nodes" {
+  type        = bool
+  default     = true
+  description = "Whether to enable GKE node auto-upgrade"
+}
+
+variable "kms_key_name" {
+  type        = string
+  default     = null
+  description = "Optional Cloud KMS crypto key ID for GKE application-layer Secrets encryption"
 }
 
 variable "create_pod_identities" {
@@ -92,17 +126,16 @@ variable "hosted_zone_ids" {
   description = "Cloud DNS hosted zone IDs for External DNS, set to empty to disable"
 }
 
-variable "s3_mountable_bucket_arns" {
+variable "gcs_mountable_buckets" {
   type        = list(string)
   default     = []
   description = "List of GCS bucket names that may be mounted into pods via GCS Fuse"
 }
 
-# tflint-ignore: terraform_unused_declarations
-variable "s3_mountable_bucket_keys" {
+variable "gcs_mountable_bucket_keys" {
   type        = list(string)
   default     = []
-  description = "List of KMS key names required to decrypt data mounted into pods"
+  description = "List of KMS key IDs required to decrypt data mounted into pods"
 }
 
 variable "argocd_create_role" {
@@ -117,10 +150,9 @@ variable "argocd_namespace" {
   default     = "argocd"
 }
 
-# tflint-ignore: terraform_unused_declarations
-variable "argocd_assume_eks_access_role" {
+variable "argocd_target_gke_access_sa" {
   type        = string
-  description = "Role ARN or Service Account that ArgoCD should assume"
+  description = "Target cluster GKE admin Service Account email that ArgoCD can impersonate"
   default     = ""
 }
 
@@ -136,30 +168,14 @@ variable "github_oidc_rolename" {
   default     = null
 }
 
-# tflint-ignore: terraform_unused_declarations
 variable "github_oidc_role_sub" {
   type        = list(string)
-  description = "List of GitHub repos/refs allowed to use OIDC role"
+  description = "List of GitHub subject claims (e.g. repo:k8tre/k8tre:ref:refs/heads/main) allowed to use OIDC pool"
   default     = []
 }
 
-# tflint-ignore: terraform_unused_declarations
 variable "additional_admin_principals" {
   type        = map(string)
-  description = "Additional admin IAM principals"
+  description = "Additional admin IAM principals (e.g. serviceAccount:... or user:...)"
   default     = {}
 }
-
-
-variable "gateway_api_version" {
-  type        = string
-  description = "Gateway API CRD version"
-  default     = "1.4.1"
-}
-
-variable "cilium_version" {
-  type        = string
-  description = "Cilium version"
-  default     = "1.19.2"
-}
-

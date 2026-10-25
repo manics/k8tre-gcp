@@ -49,4 +49,3 @@ resource "google_service_account_iam_binding" "external_secrets_workload_identit
     "serviceAccount:${var.project_id}.svc.id.goog[external-secrets/external-secrets]"
   ]
 }
-

@@ -5,7 +5,7 @@ resource "google_compute_firewall" "allow_internal" {
   network = var.network
   project = var.project_id
 
-  description = "Allow internal traffic between worker nodes"
+  description = "Allow internal traffic between worker nodes and pods"
 
   allow {
     protocol = "all"
@@ -14,24 +14,27 @@ resource "google_compute_firewall" "allow_internal" {
   source_ranges = [
     "10.0.0.0/8",
     "172.16.0.0/12",
-    "192.168.0.0/16"
+    "192.168.0.0/16",
   ]
+
+  target_tags = ["${var.cluster_name}-node"]
 }
 
-resource "google_compute_firewall" "allow_mgmt" {
-  name    = "${var.cluster_name}-allow-mgmt"
+resource "google_compute_firewall" "allow_iap_ssh" {
+  name    = "${var.cluster_name}-allow-iap-ssh"
   network = var.network
   project = var.project_id
 
-  description = "Worker nodes management access"
+  description = "Allow SSH access to worker nodes via Google Cloud IAP TCP forwarding"
 
   allow {
     protocol = "tcp"
-    ports    = ["22", "443"]
+    ports    = ["22"]
   }
 
   source_ranges = [
-    "10.0.0.0/8"
+    "35.235.240.0/20",
   ]
-}
 
+  target_tags = ["${var.cluster_name}-node"]
+}
