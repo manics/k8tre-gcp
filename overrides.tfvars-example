@@ -3,6 +3,7 @@
 
 project_id = "my-gcp-project"
 region     = "europe-west2"
+zone       = "europe-west2-a"
 
 allowed_cidrs = [
   "myip",
@@ -11,6 +12,11 @@ allowed_cidrs = [
 
 dns_domain          = "k8tre-dev-gke.example.org"
 request_certificate = "gcp"
+
+# Set to true for large-scale production deployments using GCP Filestore CSI
+# dynamic provisioning (defaults to false, which uses an in-cluster NFS server
+# backed by a GCE Persistent Disk)
+# enable_filestore_rwx = true
 
 additional_admin_principals = {
   additional-sa = "serviceAccount:admin@my-gcp-project.iam.gserviceaccount.com"
@@ -26,4 +32,3 @@ k8tre_github_ref  = "gcp-dev"
 additional_k8s_manifests = [
 #  "/path/to/additional/k8s-manifests.yaml"
 ]
-
