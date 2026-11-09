@@ -11,7 +11,7 @@ variable "subject_alternative_names" {
 
 variable "organisation" {
   type        = string
-  default     = "TREvolution"
+  default     = "tetres"
   description = "Organisation, only used for self signed certificate"
 }
 

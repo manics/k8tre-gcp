@@ -36,7 +36,7 @@ provider "google" {
   region  = var.region
   zone    = var.zone
   default_labels = {
-    owner = "trevolution"
+    owner = "tetres"
   }
 }
 
