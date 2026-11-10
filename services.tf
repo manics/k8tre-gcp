@@ -20,18 +20,15 @@ locals {
 
 resource "google_project_service" "required_apis" {
   for_each           = local.required_gcp_apis
-  project            = var.project_id
   service            = each.value
   disable_on_destroy = false
 }
 
 data "google_project" "current" {
-  project_id = var.project_id
   depends_on = [google_project_service.required_apis]
 }
 
 data "google_storage_project_service_account" "gcs_account" {
-  project    = var.project_id
   depends_on = [google_project_service.required_apis]
 }
 
@@ -42,7 +39,6 @@ data "google_storage_project_service_account" "gcs_account" {
 resource "google_kms_key_ring" "default-storage" {
   name       = "${var.name}-keyring"
   location   = var.region
-  project    = var.project_id
   depends_on = [google_project_service.required_apis]
 }
 
@@ -82,9 +78,8 @@ resource "google_kms_crypto_key_iam_member" "filestore_service_agent" {
 # Bucket for study data (GCS)
 
 resource "google_storage_bucket" "studydata" {
-  name                        = "${var.name}-studydata-${var.project_id}"
+  name                        = "${var.name}-studydata-${data.google_project.current.name}"
   location                    = var.region
-  project                     = var.project_id
   force_destroy               = false
   public_access_prevention    = "enforced"
   uniform_bucket_level_access = true
@@ -101,9 +96,8 @@ resource "google_storage_bucket" "studydata" {
 # Bucket for storing configuration
 
 resource "google_storage_bucket" "services_config" {
-  name                        = "${var.name}-config-${var.project_id}"
+  name                        = "${var.name}-config-${data.google_project.current.name}"
   location                    = var.region
-  project                     = var.project_id
   force_destroy               = true
   public_access_prevention    = "enforced"
   uniform_bucket_level_access = true
@@ -121,7 +115,6 @@ resource "google_compute_route" "private_google_access" {
   network          = google_compute_network.vpc.name
   next_hop_gateway = "default-internet-gateway"
   priority         = 800
-  project          = var.project_id
 }
 
 resource "google_dns_managed_zone" "googleapis" {
@@ -129,7 +122,6 @@ resource "google_dns_managed_zone" "googleapis" {
   dns_name    = "googleapis.com."
   description = "Private Google Access DNS zone for *.googleapis.com"
   visibility  = "private"
-  project     = var.project_id
 
   private_visibility_config {
     networks {
@@ -144,7 +136,6 @@ resource "google_dns_record_set" "googleapis_a" {
   type         = "A"
   ttl          = 300
   rrdatas      = ["199.36.153.8", "199.36.153.9", "199.36.153.10", "199.36.153.11"]
-  project      = var.project_id
 }
 
 resource "google_dns_record_set" "googleapis_cname" {
@@ -153,7 +144,6 @@ resource "google_dns_record_set" "googleapis_cname" {
   type         = "CNAME"
   ttl          = 300
   rrdatas      = ["private.googleapis.com."]
-  project      = var.project_id
 }
 
 
@@ -208,7 +198,6 @@ module "transparent-proxy" {
 
   source                = "./transparent-proxy"
   name                  = var.name
-  project_id            = var.project_id
   region                = var.region
   zone                  = var.zone
   network               = google_compute_network.vpc.name

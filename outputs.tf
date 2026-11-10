@@ -1,11 +1,11 @@
 output "kubeconfig_command_k8tre-dev" {
   description = "Create kubeconfig for k8tre-dev"
-  value       = "gcloud container clusters get-credentials ${module.k8tre-gke.cluster_name} --location ${module.k8tre-gke.cluster_location} --project ${var.project_id}"
+  value       = "gcloud container clusters get-credentials ${module.k8tre-gke.cluster_name} --location ${module.k8tre-gke.cluster_location}"
 }
 
 output "kubeconfig_command_k8tre-argocd-dev" {
   description = "Create kubeconfig for k8tre-argocd-dev"
-  value       = "gcloud container clusters get-credentials ${module.k8tre-argocd-gke.cluster_name} --location ${module.k8tre-argocd-gke.cluster_location} --project ${var.project_id}"
+  value       = "gcloud container clusters get-credentials ${module.k8tre-argocd-gke.cluster_name} --location ${module.k8tre-argocd-gke.cluster_location}"
 }
 
 output "name" {

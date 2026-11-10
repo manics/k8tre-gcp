@@ -6,11 +6,10 @@
 resource "google_service_account" "node_sa" {
   account_id   = "${var.cluster_name}-node-sa"
   display_name = "GKE Node Service Account for ${var.cluster_name}"
-  project      = var.project_id
 }
 
 resource "google_project_iam_member" "node_sa_default" {
-  project = var.project_id
+  project = data.google_project.current.name
   role    = "roles/container.defaultNodeServiceAccount"
   member  = "serviceAccount:${google_service_account.node_sa.email}"
 }
@@ -24,7 +23,6 @@ resource "google_iam_workload_identity_pool" "github_pool" {
   workload_identity_pool_id = "${var.cluster_name}-github-pool"
   display_name              = "GitHub Workload Identity Pool for ${var.cluster_name}"
   description               = "Identity pool for GitHub Actions OIDC federation"
-  project                   = var.project_id
 }
 
 resource "google_iam_workload_identity_pool_provider" "github_provider" {
@@ -32,7 +30,6 @@ resource "google_iam_workload_identity_pool_provider" "github_provider" {
   workload_identity_pool_id          = google_iam_workload_identity_pool.github_pool[0].workload_identity_pool_id
   workload_identity_pool_provider_id = "github-provider"
   display_name                       = "GitHub Actions Provider"
-  project                            = var.project_id
 
   attribute_mapping = {
     "google.subject"       = "assertion.sub"
@@ -63,18 +60,17 @@ resource "google_service_account_iam_member" "github_oidc_workload_identity" {
 resource "google_service_account" "gke_access" {
   account_id   = "${var.cluster_name}-gke-admin"
   display_name = "Service Account for ${var.cluster_name} administration"
-  project      = var.project_id
 }
 
 resource "google_project_iam_member" "gke_admin" {
-  project = var.project_id
+  project = data.google_project.current.name
   role    = "roles/container.admin"
   member  = "serviceAccount:${google_service_account.gke_access.email}"
 }
 
 resource "google_project_iam_member" "additional_admins" {
   for_each = var.additional_admin_principals
-  project  = var.project_id
+  project  = data.google_project.current.name
   role     = "roles/container.admin"
   member   = each.value
 }
@@ -87,19 +83,18 @@ resource "google_service_account" "argocd_sa" {
   count        = var.argocd_create_role ? 1 : 0
   account_id   = "${var.cluster_name}-sa"
   display_name = "ArgoCD Workload Identity SA for ${var.cluster_name}"
-  project      = var.project_id
 }
 
 resource "google_project_iam_member" "argocd_gke_admin" {
   count   = var.argocd_create_role ? 1 : 0
-  project = var.project_id
+  project = data.google_project.current.name
   role    = "roles/container.admin"
   member  = "serviceAccount:${google_service_account.argocd_sa[0].email}"
 }
 
 resource "google_service_account_iam_member" "argocd_impersonate_target" {
   count              = (var.argocd_create_role && length(var.argocd_target_gke_access_sa) > 0) ? 1 : 0
-  service_account_id = "projects/${var.project_id}/serviceAccounts/${var.argocd_target_gke_access_sa}"
+  service_account_id = "projects/${data.google_project.current.name}/serviceAccounts/${var.argocd_target_gke_access_sa}"
   role               = "roles/iam.serviceAccountTokenCreator"
   member             = "serviceAccount:${google_service_account.argocd_sa[0].email}"
 }
@@ -111,6 +106,6 @@ resource "google_service_account_iam_binding" "argocd_workload_identity" {
 
   members = [
     for sa in var.argocd_serviceaccount_names :
-    "serviceAccount:${var.project_id}.svc.id.goog[${var.argocd_namespace}/${sa}]"
+    "serviceAccount:${data.google_project.current.name}.svc.id.goog[${var.argocd_namespace}/${sa}]"
   ]
 }

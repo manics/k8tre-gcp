@@ -4,7 +4,6 @@ resource "google_container_cluster" "primary" {
   name               = var.cluster_name
   location           = local.cluster_location
   node_locations     = local.node_locations
-  project            = var.project_id
   min_master_version = var.k8s_version
 
   release_channel {
@@ -55,7 +54,7 @@ resource "google_container_cluster" "primary" {
   }
 
   workload_identity_config {
-    workload_pool = "${var.project_id}.svc.id.goog"
+    workload_pool = "${data.google_project.current.name}.svc.id.goog"
   }
 
   dynamic "database_encryption" {
@@ -119,7 +118,6 @@ resource "google_container_node_pool" "primary_nodes" {
   node_locations = local.node_locations
   cluster        = google_container_cluster.primary.name
   node_count     = var.wg1_size
-  project        = var.project_id
 
   autoscaling {
     min_node_count = 1

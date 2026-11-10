@@ -15,12 +15,6 @@ variable "deployment_stage" {
   }
 }
 
-variable "project_id" {
-  type        = string
-  description = "GCP Project ID"
-  default     = "k8tre-dev-project"
-}
-
 variable "name" {
   type        = string
   description = "Name used for most resources"

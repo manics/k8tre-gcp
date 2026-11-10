@@ -5,12 +5,11 @@ resource "google_service_account" "external_dns" {
   count        = local.create_external_dns_pod_identity
   account_id   = "${var.cluster_name}-extdns"
   display_name = "External DNS SA for ${var.cluster_name}"
-  project      = var.project_id
 }
 
 resource "google_project_iam_member" "external_dns" {
   count   = local.create_external_dns_pod_identity
-  project = var.project_id
+  project = data.google_project.current.name
   role    = "roles/dns.admin"
   member  = "serviceAccount:${google_service_account.external_dns[0].email}"
 }
@@ -21,7 +20,7 @@ resource "google_service_account_iam_binding" "external_dns_workload_identity" {
   role               = "roles/iam.workloadIdentityUser"
 
   members = [
-    "serviceAccount:${var.project_id}.svc.id.goog[externaldns/externaldns-sa]"
+    "serviceAccount:${data.google_project.current.name}.svc.id.goog[externaldns/externaldns-sa]"
   ]
 }
 
@@ -30,12 +29,11 @@ resource "google_service_account" "external_secrets" {
   count        = local.create_pod_identities
   account_id   = "${var.cluster_name}-extsec"
   display_name = "External Secrets SA for ${var.cluster_name}"
-  project      = var.project_id
 }
 
 resource "google_project_iam_member" "external_secrets" {
   count   = local.create_pod_identities
-  project = var.project_id
+  project = data.google_project.current.name
   role    = "roles/secretmanager.secretAccessor"
   member  = "serviceAccount:${google_service_account.external_secrets[0].email}"
 }
@@ -46,6 +44,6 @@ resource "google_service_account_iam_binding" "external_secrets_workload_identit
   role               = "roles/iam.workloadIdentityUser"
 
   members = [
-    "serviceAccount:${var.project_id}.svc.id.goog[external-secrets/external-secrets]"
+    "serviceAccount:${data.google_project.current.name}.svc.id.goog[external-secrets/external-secrets]"
   ]
 }

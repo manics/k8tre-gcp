@@ -3,11 +3,6 @@ variable "name" {
   description = "Deployment name, used to prefix some resources"
 }
 
-variable "project_id" {
-  type        = string
-  description = "GCP Project ID"
-}
-
 variable "region" {
   type        = string
   description = "GCP region"

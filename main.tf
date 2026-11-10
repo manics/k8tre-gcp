@@ -31,7 +31,6 @@ locals {
 resource "google_compute_network" "vpc" {
   name                    = "${var.name}-vpc"
   auto_create_subnetworks = false
-  project                 = var.project_id
   depends_on              = [google_project_service.required_apis]
 }
 
@@ -41,7 +40,6 @@ resource "google_compute_subnetwork" "private_subnet" {
   region                   = var.region
   network                  = google_compute_network.vpc.id
   private_ip_google_access = true
-  project                  = var.project_id
 
   secondary_ip_range {
     range_name    = "gke-pods"
@@ -70,14 +68,12 @@ resource "google_compute_subnetwork" "public_subnet" {
   region                   = var.region
   network                  = google_compute_network.vpc.id
   private_ip_google_access = true
-  project                  = var.project_id
 }
 
 resource "google_compute_router" "router" {
   name    = "${var.name}-router"
   region  = var.region
   network = google_compute_network.vpc.id
-  project = var.project_id
 }
 
 resource "google_compute_router_nat" "nat" {
@@ -87,7 +83,6 @@ resource "google_compute_router_nat" "nat" {
   region                             = var.region
   nat_ip_allocate_option             = "AUTO_ONLY"
   source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
-  project                            = var.project_id
 }
 
 
@@ -99,7 +94,6 @@ module "k8tre-gke" {
   source = "./k8tre-gke"
 
   deployment_stage = var.deployment_stage
-  project_id       = var.project_id
   region           = var.region
   zone             = var.zone
   number_azs       = var.number_availability_zones
@@ -148,7 +142,6 @@ module "k8tre-argocd-gke" {
   source = "./k8tre-gke"
 
   deployment_stage = var.deployment_stage
-  project_id       = var.project_id
   region           = var.region
   zone             = var.zone
   number_azs       = var.number_availability_zones

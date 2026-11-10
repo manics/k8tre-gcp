@@ -50,7 +50,6 @@ Either modify [`variables.tf`](variables.tf), or copy [`overrides.tfvars-example
 
 Particularly important variables include
 
-- `project_id`: Your GCP Project ID
 - `region` and `zone`: GCP region and zone, e.g. `europe-west2` and `europe-west2-a`
 - `number_availability_zones`: Defaults to `1` (single-zone GKE cluster) to avoid cross-zone `ReadWriteOnce` Persistent Disk affinity issues and reduce GKE control plane and node costs.
 - `dns_domain`: The domain for K8TRE, e.g. `k8tre.example.org`

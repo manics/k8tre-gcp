@@ -1,11 +1,5 @@
 # Initial setup of GCS bucket to store tfstate file
 
-variable "project_id" {
-  type        = string
-  default     = "k8tre-dev-project"
-  description = "GCP Project ID"
-}
-
 variable "region" {
   type        = string
   default     = "europe-west2"
@@ -24,8 +18,7 @@ terraform {
 
 # Configure the GCP Provider
 provider "google" {
-  project = var.project_id
-  region  = var.region
+  region = var.region
   default_labels = {
     owner = "tetres"
   }

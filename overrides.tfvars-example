@@ -1,7 +1,6 @@
 # k8tre-infrastructure-gcp/
 # terraform apply -var-file=overrides.tfvars
 
-project_id = "my-gcp-project"
 region     = "europe-west2"
 zone       = "europe-west2-a"
 

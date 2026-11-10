@@ -32,13 +32,14 @@ terraform {
 }
 
 provider "google" {
-  project = var.project_id
-  region  = var.region
-  zone    = var.zone
+  region = var.region
+  zone   = var.zone
   default_labels = {
     owner = "tetres"
   }
 }
+
+data "google_project" "project" {}
 
 data "google_client_config" "default" {}
 

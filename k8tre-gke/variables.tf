@@ -5,12 +5,6 @@ variable "deployment_stage" {
   description = "Multi-stage deployment step, run with 0 the first time, then with 1."
 }
 
-variable "project_id" {
-  type        = string
-  description = "GCP Project ID"
-  default     = "k8tre-dev-project"
-}
-
 variable "region" {
   type        = string
   description = "GCP Region"

@@ -3,7 +3,6 @@
 resource "google_compute_firewall" "allow_internal" {
   name    = "${var.cluster_name}-allow-internal"
   network = var.network
-  project = var.project_id
 
   description = "Allow internal traffic between worker nodes and pods"
 
@@ -23,7 +22,6 @@ resource "google_compute_firewall" "allow_internal" {
 resource "google_compute_firewall" "allow_iap_ssh" {
   name    = "${var.cluster_name}-allow-iap-ssh"
   network = var.network
-  project = var.project_id
 
   description = "Allow SSH access to worker nodes via Google Cloud IAP TCP forwarding"
 

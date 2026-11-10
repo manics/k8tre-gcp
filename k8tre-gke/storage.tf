@@ -4,7 +4,6 @@ resource "google_service_account" "gcs_fuse" {
   count        = local.create_gcs_csi_pod_identity
   account_id   = "${var.cluster_name}-gcs-fuse"
   display_name = "GCS Fuse CSI Service Account for ${var.cluster_name}"
-  project      = var.project_id
 }
 
 resource "google_storage_bucket_iam_member" "gcs_fuse_reader" {
@@ -27,6 +26,6 @@ resource "google_service_account_iam_binding" "gcs_fuse_workload_identity" {
   role               = "roles/iam.workloadIdentityUser"
 
   members = [
-    "serviceAccount:${var.project_id}.svc.id.goog[kube-system/gcs-fuse-csi-driver-sa]",
+    "serviceAccount:${data.google_project.current.name}.svc.id.goog[kube-system/gcs-fuse-csi-driver-sa]",
   ]
 }
