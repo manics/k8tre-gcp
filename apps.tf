@@ -13,7 +13,7 @@
 #        provisioning (supporting Filestore Multishares on Enterprise tier to share a
 #        Filestore instance across up to 80 PVCs).
 
-resource "kubernetes_storage_class" "rwo-default" {
+resource "kubernetes_storage_class_v1" "rwo-default" {
   count = (var.deployment_stage >= 2) ? 1 : 0
 
   metadata {
@@ -37,7 +37,7 @@ resource "kubernetes_storage_class" "rwo-default" {
 }
 
 # Option 1 (Default): Cheap in-cluster NFS dynamic provisioner backed by GCE Persistent Disk
-resource "kubernetes_namespace" "nfs_provisioner" {
+resource "kubernetes_namespace_v1" "nfs_provisioner" {
   count = (var.deployment_stage >= 2 && !var.enable_filestore_rwx) ? 1 : 0
 
   metadata {
@@ -54,13 +54,13 @@ resource "helm_release" "nfs_server_provisioner" {
   repository = "https://kubernetes-sigs.github.io/nfs-ganesha-server-and-external-provisioner/"
   chart      = "nfs-server-provisioner"
   version    = "1.8.0"
-  namespace  = kubernetes_namespace.nfs_provisioner[0].metadata[0].name
+  namespace  = kubernetes_namespace_v1.nfs_provisioner[0].metadata[0].name
 
   values = [
     yamlencode({
       persistence = {
         enabled      = true
-        storageClass = kubernetes_storage_class.rwo-default[0].metadata[0].name
+        storageClass = kubernetes_storage_class_v1.rwo-default[0].metadata[0].name
         size         = "${var.rwx_nfs_disk_size_gb}Gi"
       }
       storageClass = {
@@ -73,13 +73,13 @@ resource "helm_release" "nfs_server_provisioner" {
     })
   ]
 
-  depends_on = [kubernetes_storage_class.rwo-default, kubernetes_namespace.nfs_provisioner]
+  depends_on = [kubernetes_storage_class_v1.rwo-default, kubernetes_namespace_v1.nfs_provisioner]
 
   provider = helm.k8tre-dev
 }
 
 # Option 2 (Production): GCP Filestore CSI dynamic provisioning (disabled by default)
-resource "kubernetes_storage_class" "rwx-default-filestore" {
+resource "kubernetes_storage_class_v1" "rwx-default-filestore" {
   count = (var.deployment_stage >= 2 && var.enable_filestore_rwx) ? 1 : 0
 
   metadata {
@@ -115,7 +115,7 @@ resource "kubernetes_storage_class" "rwx-default-filestore" {
 ######################################################################
 # ArgoCD
 
-resource "kubernetes_namespace" "argocd" {
+resource "kubernetes_namespace_v1" "argocd" {
   count = (var.deployment_stage >= 2) ? 1 : 0
 
   metadata {
@@ -126,12 +126,12 @@ resource "kubernetes_namespace" "argocd" {
 }
 
 # Create the plugin config map first so that it can be referenced later in the helm release.
-resource "kubernetes_config_map" "cmp_plugin" {
+resource "kubernetes_config_map_v1" "cmp_plugin" {
   count = (var.deployment_stage >= 2) ? 1 : 0
 
   metadata {
     name      = "cmp-plugin"
-    namespace = kubernetes_namespace.argocd[0].metadata[0].name
+    namespace = kubernetes_namespace_v1.argocd[0].metadata[0].name
   }
 
   data = {
@@ -172,7 +172,7 @@ resource "helm_release" "argocd" {
   repository = "https://argoproj.github.io/argo-helm"
   chart      = "argo-cd"
   version    = var.argocd_version
-  namespace  = kubernetes_namespace.argocd[0].metadata[0].name
+  namespace  = kubernetes_namespace_v1.argocd[0].metadata[0].name
 
   set = [
     {
@@ -265,19 +265,19 @@ resource "helm_release" "argocd" {
     })
   ]
 
-  depends_on = [kubernetes_namespace.argocd, kubernetes_config_map.cmp_plugin]
+  depends_on = [kubernetes_namespace_v1.argocd, kubernetes_config_map_v1.cmp_plugin]
 
   provider = helm.k8tre-dev-argocd
 }
 
 
 # Add k8tre-dev cluster to ArgoCD (using GKE Workload Identity & internal private endpoint)
-resource "kubernetes_secret" "argocd-cluster-k8tre-dev" {
+resource "kubernetes_secret_v1" "argocd-cluster-k8tre-dev" {
   count = (var.deployment_stage >= 2) ? 1 : 0
 
   metadata {
     name      = "argocd-cluster-${module.k8tre-gke.cluster_name}"
-    namespace = kubernetes_namespace.argocd[0].metadata[0].name
+    namespace = kubernetes_namespace_v1.argocd[0].metadata[0].name
     labels = merge(
       { "argocd.argoproj.io/secret-type" = "cluster" },
       var.k8tre_cluster_labels,

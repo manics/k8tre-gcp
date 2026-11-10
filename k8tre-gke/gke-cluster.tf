@@ -10,9 +10,9 @@ resource "google_container_cluster" "primary" {
     channel = "REGULAR"
   }
 
-  # Remove the default node pool to manage node pools explicitly
-  remove_default_node_pool = true
-  initial_node_count       = 1
+  # default node pool should already be disabled by default
+  # remove_default_node_pool = true
+  # initial_node_count       = 1
 
   network    = var.network
   subnetwork = var.subnetwork
