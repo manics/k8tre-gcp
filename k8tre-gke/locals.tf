@@ -9,4 +9,7 @@ locals {
 
   enable_gcs_csi              = (length(var.gcs_mountable_buckets) > 0) ? 1 : 0
   create_gcs_csi_pod_identity = (var.create_pod_identities && local.enable_gcs_csi > 0) ? 1 : 0
+
+  # Google Cloud Identity-Aware Proxy (IAP) TCP forwarding IP range
+  iap_tcp_forwarding_ranges = ["35.235.240.0/20"]
 }

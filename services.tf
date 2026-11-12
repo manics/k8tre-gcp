@@ -109,18 +109,53 @@ resource "google_storage_bucket" "services_config" {
 # Ensures Google APIs (*.googleapis.com) route via Private Google Access
 # rather than through the Squid transparent proxy when 0.0.0.0/0 is proxied.
 
+# https://docs.cloud.google.com/vpc/docs/configure-private-google-access
+
+# TODO: Look at restricted VPC service controls https://docs.cloud.google.com/vpc-service-controls/docs/overview
+
+locals {
+  pga_vip_ips = [
+    "199.36.153.8",
+    "199.36.153.9",
+    "199.36.153.10",
+    "199.36.153.11"
+  ]
+
+  pga_zones = {
+    "googleapis" = {
+      dns_name     = "googleapis.com.",
+      cname_target = "private.googleapis.com."
+    }
+    "gcr" = {
+      dns_name     = "gcr.io.",
+      cname_target = "gcr.io."
+    }
+    # "pkg-dev" = {
+    #   dns_name     = "pkg.dev.",
+    #   cname_target = "pkg.dev."
+    # }
+  }
+
+  pga_dest_ranges = [
+    "199.36.153.8/30", # private.googleapis.com VIP
+    "34.126.0.0/18"    # Artifact Registry / Cloud Storage data backend VIPs
+  ]
+}
+
 resource "google_compute_route" "private_google_access" {
-  name             = "${var.name}-private-google-access"
-  dest_range       = "199.36.153.8/30"
+  for_each         = toset(local.pga_dest_ranges)
+  name             = "${var.name}-pga-${replace(replace(each.value, ".", "-"), "/", "-")}"
+  dest_range       = each.value
   network          = google_compute_network.vpc.name
   next_hop_gateway = "default-internet-gateway"
   priority         = 800
 }
 
-resource "google_dns_managed_zone" "googleapis" {
-  name        = "${var.name}-private-googleapis"
-  dns_name    = "googleapis.com."
-  description = "Private Google Access DNS zone for *.googleapis.com"
+resource "google_dns_managed_zone" "pga_zones" {
+  for_each    = local.pga_zones
+  name        = "${var.name}-private-${each.key}"
+  dns_name    = each.value.dns_name
+  description = "Private Google Access DNS zone for ${each.value.dns_name}"
   visibility  = "private"
 
   private_visibility_config {
@@ -130,22 +165,23 @@ resource "google_dns_managed_zone" "googleapis" {
   }
 }
 
-resource "google_dns_record_set" "googleapis_a" {
-  managed_zone = google_dns_managed_zone.googleapis.name
-  name         = "private.googleapis.com."
+resource "google_dns_record_set" "pga_a_records" {
+  for_each     = local.pga_zones
+  managed_zone = google_dns_managed_zone.pga_zones[each.key].name
+  name         = each.value.cname_target
   type         = "A"
   ttl          = 300
-  rrdatas      = ["199.36.153.8", "199.36.153.9", "199.36.153.10", "199.36.153.11"]
+  rrdatas      = local.pga_vip_ips
 }
 
-resource "google_dns_record_set" "googleapis_cname" {
-  managed_zone = google_dns_managed_zone.googleapis.name
-  name         = "*.googleapis.com."
+resource "google_dns_record_set" "pga_cnames" {
+  for_each     = local.pga_zones
+  managed_zone = google_dns_managed_zone.pga_zones[each.key].name
+  name         = "*.${each.value.dns_name}"
   type         = "CNAME"
   ttl          = 300
-  rrdatas      = ["private.googleapis.com."]
+  rrdatas      = [each.value.cname_target]
 }
-
 
 ######################################################################
 # DNS (Cloud DNS)

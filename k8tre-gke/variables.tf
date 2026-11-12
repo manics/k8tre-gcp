@@ -63,7 +63,7 @@ variable "master_ipv4_cidr_block" {
 variable "k8s_version" {
   type        = string
   description = "Kubernetes cluster minimum version"
-  default     = "1.32"
+  default     = "1.36"
 }
 
 variable "k8s_api_cidrs" {
@@ -74,7 +74,8 @@ variable "k8s_api_cidrs" {
 
 variable "instance_type_wg1" {
   type        = string
-  default     = "e2-standard-4"
+  # 4 cpu, 32 GB RAM
+  default     = "e2-highmem-4"
   description = "Worker group 1 GKE node machine type"
 }
 

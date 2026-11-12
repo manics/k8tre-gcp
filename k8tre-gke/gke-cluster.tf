@@ -39,6 +39,7 @@ resource "google_container_cluster" "primary" {
 
   private_cluster_config {
     enable_private_nodes    = true
+    # False = public + private endpoints enabled
     enable_private_endpoint = false
     master_ipv4_cidr_block  = var.master_ipv4_cidr_block
   }
@@ -96,6 +97,7 @@ resource "google_container_cluster" "primary" {
     }
   }
 
+  # https://registry.terraform.io/providers/hashicorp/google/8.10.0/docs/resources/container_cluster#nested_addons_config
   addons_config {
     gcs_fuse_csi_driver_config {
       enabled = true

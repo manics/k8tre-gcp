@@ -11,6 +11,11 @@ terraform {
 
 data "google_project" "current" {}
 
+locals {
+  # Google Cloud Identity-Aware Proxy (IAP) TCP forwarding IP range
+  iap_tcp_forwarding_ranges = ["35.235.240.0/20"]
+}
+
 resource "google_storage_bucket_object" "allowlist" {
   name         = "${var.name}-transparent-proxy/allowlist.txt"
   bucket       = var.gcs_config_bucket
@@ -65,8 +70,7 @@ resource "google_compute_firewall" "allow_proxy_iap_ssh" {
     ports    = ["22"]
   }
 
-  # Google Cloud Identity-Aware Proxy (IAP) TCP forwarding IP range
-  source_ranges = ["35.235.240.0/20"]
+  source_ranges = local.iap_tcp_forwarding_ranges
   target_tags   = ["transparent-proxy"]
 }
 
@@ -80,6 +84,7 @@ resource "google_compute_instance" "transparent_proxy" {
 
   boot_disk {
     initialize_params {
+      # TODO: bump to 26.04
       image = "ubuntu-os-cloud/ubuntu-2404-lts-amd64"
       size  = 20
       type  = "pd-balanced"

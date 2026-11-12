@@ -30,9 +30,7 @@ resource "google_compute_firewall" "allow_iap_ssh" {
     ports    = ["22"]
   }
 
-  source_ranges = [
-    "35.235.240.0/20",
-  ]
+  source_ranges = local.iap_tcp_forwarding_ranges
 
   target_tags = ["${var.cluster_name}-node"]
 }
