@@ -20,8 +20,9 @@ resource "google_service_account_iam_binding" "external_dns_workload_identity" {
   role               = "roles/iam.workloadIdentityUser"
 
   members = [
-    "serviceAccount:${data.google_project.current.name}.svc.id.goog[externaldns/externaldns-sa]"
+    "serviceAccount:${data.google_project.current.project_id}.svc.id.goog[externaldns/externaldns-sa]"
   ]
+  depends_on = [google_container_cluster.primary]
 }
 
 # External Secrets Workload Identity
@@ -44,6 +45,7 @@ resource "google_service_account_iam_binding" "external_secrets_workload_identit
   role               = "roles/iam.workloadIdentityUser"
 
   members = [
-    "serviceAccount:${data.google_project.current.name}.svc.id.goog[external-secrets/external-secrets]"
+    "serviceAccount:${data.google_project.current.project_id}.svc.id.goog[external-secrets/external-secrets]"
   ]
+  depends_on = [google_container_cluster.primary]
 }

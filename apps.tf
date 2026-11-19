@@ -22,7 +22,7 @@ resource "kubernetes_storage_class_v1" "rwo-default" {
       "description" = "ReadWriteOnce - Single pod read-write access"
     }
   }
-  storage_provisioner = "pd.csi.storage.gcp.io"
+  storage_provisioner = "pd.csi.storage.gke.io"
   reclaim_policy      = "Delete"
   parameters = {
     type                    = "pd-balanced"
@@ -88,7 +88,7 @@ resource "kubernetes_storage_class_v1" "rwx-default-filestore" {
       "description" = "ReadWriteMany - Multi-pod shared read-write access (Filestore CSI)"
     }
   }
-  storage_provisioner = "filestore.csi.storage.gcp.io"
+  storage_provisioner = "filestore.csi.storage.gke.io"
   reclaim_policy      = "Delete"
   parameters = merge(
     {

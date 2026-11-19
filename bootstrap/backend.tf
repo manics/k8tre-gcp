@@ -6,6 +6,18 @@ variable "region" {
   description = "GCP region"
 }
 
+variable "google_project" {
+  type        = string
+  description = "GCP project"
+}
+
+variable "bucket_name" {
+  type = string
+  # Generate a random bucket name, e.g. `openssl rand -hex 8`
+  default     = "k8tre-tfstate-0123456789abcdef"
+  description = "Bucket name for storing Terraform state"
+}
+
 terraform {
   required_providers {
     google = {
@@ -18,15 +30,15 @@ terraform {
 
 # Configure the GCP Provider
 provider "google" {
-  region = var.region
+  region  = var.region
+  project = var.google_project
   default_labels = {
     owner = "tetres"
   }
 }
 
 resource "google_storage_bucket" "bucket" {
-  # Generate a random bucket name, e.g. `openssl rand -hex 8`
-  name                        = "k8tre-tfstate-0123456789abcdef"
+  name                        = var.bucket_name
   location                    = var.region
   force_destroy               = false
   public_access_prevention    = "enforced"

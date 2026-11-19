@@ -73,7 +73,7 @@ variable "k8s_api_cidrs" {
 }
 
 variable "instance_type_wg1" {
-  type        = string
+  type = string
   # 4 cpu, 32 GB RAM
   default     = "e2-highmem-4"
   description = "Worker group 1 GKE node machine type"
@@ -83,12 +83,6 @@ variable "root_volume_size" {
   type        = number
   default     = 100
   description = "Root disk size in GB"
-}
-
-variable "wg1_size" {
-  type        = number
-  default     = 2
-  description = "Worker group 1 initial desired number of nodes per zone"
 }
 
 variable "wg1_max_size" {

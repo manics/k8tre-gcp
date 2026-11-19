@@ -108,7 +108,6 @@ module "k8tre-gke" {
   k8s_api_cidrs = local.k8s_api_cidrs
 
   root_volume_size = 200
-  wg1_size         = 2
   wg1_max_size     = 2
 
   kms_key_name = google_kms_crypto_key.default-storage.id
@@ -157,7 +156,6 @@ module "k8tre-argocd-gke" {
 
   # instance_type_wg1 = "e2-standard-2"
   instance_type_wg1 = "e2-highmem-2"
-  wg1_size          = 1
   wg1_max_size      = 1
 
   kms_key_name = google_kms_crypto_key.default-storage.id

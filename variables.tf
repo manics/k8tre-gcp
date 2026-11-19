@@ -21,6 +21,11 @@ variable "name" {
   default     = "k8tre-dev"
 }
 
+variable "google_project" {
+  type        = string
+  description = "GCP project"
+}
+
 variable "region" {
   type        = string
   description = "GCP region"

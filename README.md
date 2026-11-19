@@ -10,12 +10,17 @@ Deploy GCP infrastructure using Terraform to support [K8TRE](https://github.com/
 ## First time
 
 You must first create a GCS bucket to store the [Terraform state file](https://developer.hashicorp.com/terraform/language/state).
+Create an `overrides.tfvars` file:
+```tf
+google_project = "GCP-PROJECT-NAME"
+```
+
 Activate your GCP credentials in your shell environment, edit the `google_storage_bucket.bucket` `name` in [`bootstrap/backend.tf`](bootstrap/backend.tf), then:
 
 ```sh
 cd bootstrap
 terraform init
-terraform apply
+terraform apply -var-file=overrides.tfvars
 cd ..
 ```
 
@@ -38,7 +43,7 @@ The clusters use GKE native capabilities:
 Two options are supported for the `rwx-default` `ReadWriteMany` StorageClass:
 
 1. **In-cluster NFS provisioner (default, `enable_filestore_rwx = false`):** Deploys `nfs-server-provisioner` backed by a CMEK-encrypted `pd-balanced` GCE Persistent Disk (`rwx_nfs_disk_size_gb`, default 100 GB). Suitable for development and small production deployments at minimal cost.
-2. **GCP Filestore CSI dynamic provisioning (`enable_filestore_rwx = true`):** Uses `filestore.csi.storage.gcp.io` with Filestore Multishares (`rwx_filestore_tier = "enterprise"` by default) for large-scale production deployments.
+2. **GCP Filestore CSI dynamic provisioning (`enable_filestore_rwx = true`):** Uses `filestore.csi.storage.gke.io` with Filestore Multishares (`rwx_filestore_tier = "enterprise"` by default) for large-scale production deployments.
 
 ### Configuration
 

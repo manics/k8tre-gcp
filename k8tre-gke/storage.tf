@@ -26,6 +26,6 @@ resource "google_service_account_iam_binding" "gcs_fuse_workload_identity" {
   role               = "roles/iam.workloadIdentityUser"
 
   members = [
-    "serviceAccount:${data.google_project.current.name}.svc.id.goog[kube-system/gcs-fuse-csi-driver-sa]",
+    "serviceAccount:${data.google_project.current.project_id}.svc.id.goog[kube-system/gcs-fuse-csi-driver-sa]",
   ]
 }

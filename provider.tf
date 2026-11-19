@@ -32,8 +32,9 @@ terraform {
 }
 
 provider "google" {
-  region = var.region
-  zone   = var.zone
+  region  = var.region
+  project = var.google_project
+  zone    = var.zone
   default_labels = {
     owner = "tetres"
   }

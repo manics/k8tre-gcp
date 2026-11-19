@@ -38,7 +38,7 @@ resource "google_container_cluster" "primary" {
   }
 
   private_cluster_config {
-    enable_private_nodes    = true
+    enable_private_nodes = true
     # False = public + private endpoints enabled
     enable_private_endpoint = false
     master_ipv4_cidr_block  = var.master_ipv4_cidr_block
@@ -55,7 +55,7 @@ resource "google_container_cluster" "primary" {
   }
 
   workload_identity_config {
-    workload_pool = "${data.google_project.current.name}.svc.id.goog"
+    workload_pool = "${data.google_project.current.project_id}.svc.id.goog"
   }
 
   dynamic "database_encryption" {
@@ -119,7 +119,6 @@ resource "google_container_node_pool" "primary_nodes" {
   location       = local.cluster_location
   node_locations = local.node_locations
   cluster        = google_container_cluster.primary.name
-  node_count     = var.wg1_size
 
   autoscaling {
     min_node_count = 1

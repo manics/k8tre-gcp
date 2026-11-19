@@ -94,7 +94,7 @@ resource "google_project_iam_member" "argocd_gke_admin" {
 
 resource "google_service_account_iam_member" "argocd_impersonate_target" {
   count              = (var.argocd_create_role && length(var.argocd_target_gke_access_sa) > 0) ? 1 : 0
-  service_account_id = "projects/${data.google_project.current.name}/serviceAccounts/${var.argocd_target_gke_access_sa}"
+  service_account_id = "projects/${data.google_project.current.project_id}/serviceAccounts/${var.argocd_target_gke_access_sa}"
   role               = "roles/iam.serviceAccountTokenCreator"
   member             = "serviceAccount:${google_service_account.argocd_sa[0].email}"
 }
@@ -106,6 +106,7 @@ resource "google_service_account_iam_binding" "argocd_workload_identity" {
 
   members = [
     for sa in var.argocd_serviceaccount_names :
-    "serviceAccount:${data.google_project.current.name}.svc.id.goog[${var.argocd_namespace}/${sa}]"
+    "serviceAccount:${data.google_project.current.project_id}.svc.id.goog[${var.argocd_namespace}/${sa}]"
   ]
+  depends_on = [google_container_cluster.primary]
 }
